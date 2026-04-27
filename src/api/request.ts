@@ -7,20 +7,6 @@ const TextPart = z.object({
 
 const Content = z.union([z.string(), z.array(TextPart).min(1)]);
 
-export const ApprovalDecisionSchema = z
-  .object({
-    toolCallId: z.string().min(1),
-    decision: z.enum(['allow_once', 'allow_session', 'deny']),
-    rule: z.string().min(1).optional(),
-  })
-  .strict()
-  .refine((d) => d.decision !== 'allow_session' || typeof d.rule === 'string', {
-    message: 'rule is required when decision is allow_session',
-    path: ['rule'],
-  });
-
-export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;
-
 export const InvokeRequestSchema = z
   .object({
     messages: z
@@ -31,8 +17,6 @@ export const InvokeRequestSchema = z
         }),
       )
       .min(1),
-    approvals: z.array(ApprovalDecisionSchema).optional(),
-    sessionAllowRules: z.array(z.string().min(1)).optional(),
   })
   .strict();
 

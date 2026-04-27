@@ -2,7 +2,6 @@ import { type SpanContext, context, trace } from '@opentelemetry/api';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { type AgentEvent, runAgent } from '../agent/loop.js';
 import { InvokeRequestSchema } from '../api/request.js';
-import type { ApprovalDecision } from '../api/request.js';
 import { type RunRecord, parseTraceparent, readAllStdin, writeRunRecord } from '../cli/stdio.js';
 import { ConfigError, loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
@@ -78,8 +77,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
     const record = await executeRun(
       config,
       validated.data.messages as ModelMessage[],
-      validated.data.approvals,
-      validated.data.sessionAllowRules,
       opts.modelOverride,
       parentSpanCtx,
     );
@@ -102,8 +99,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 async function executeRun(
   config: AgentConfig,
   messages: ModelMessage[],
-  approvals: ApprovalDecision[] | undefined,
-  sessionAllowRules: string[] | undefined,
   modelOverride: LanguageModel | undefined,
   parentSpanCtx: SpanContext | null,
 ): Promise<RunRecord> {
@@ -111,8 +106,6 @@ async function executeRun(
 
   const work = () =>
     runAgent(config, messages, (e) => collector.collect(e), undefined, {
-      approvals,
-      sessionAllowRules,
       model: modelOverride,
     });
 
@@ -137,13 +130,9 @@ async function executeRun(
 class EventCollector {
   private finalText: string | undefined;
   private errorMessage: string | undefined;
-  private approvalRequested = false;
 
   collect(event: AgentEvent): void {
     switch (event.type) {
-      case 'tool_approval_requested':
-        this.approvalRequested = true;
-        break;
       case 'final':
         this.finalText = event.content;
         break;
@@ -156,18 +145,10 @@ class EventCollector {
   }
 
   toRecord(): RunRecord {
-    const finalSeen = this.finalText !== undefined;
-    const errorSeen = this.errorMessage !== undefined;
-
-    let error: string | null = this.errorMessage ?? null;
-    if (!finalSeen && !errorSeen && this.approvalRequested) {
-      error = 'run halted waiting for tool approval (CLI is non-interactive)';
-    }
-
     return {
-      ok: finalSeen && !errorSeen,
+      ok: this.finalText !== undefined && this.errorMessage === undefined,
       finalText: this.finalText ?? '',
-      error,
+      error: this.errorMessage ?? null,
     };
   }
 }

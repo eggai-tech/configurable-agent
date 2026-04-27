@@ -1,4 +1,16 @@
-import type { ToolResult } from './tools/result.js';
+export type ToolStatus = 'succeeded' | 'error' | 'denied' | 'approval_required';
+export type DeniedReason = 'policy_deny' | 'user_denied' | 'policy_compound';
+
+export interface ToolResult {
+  label: string;
+  status: ToolStatus;
+  content: string;
+  return_code: number | null;
+  args: unknown;
+  duration_ms: number;
+  truncated?: boolean;
+  denied_reason?: DeniedReason;
+}
 
 export interface SizeSnapshot {
   tokens: number;
@@ -9,29 +21,6 @@ export type AgentEvent =
   | { type: 'reasoning'; text: string }
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | { type: 'tool_result'; id: string; output: ToolResult }
-  | {
-      type: 'tool_approval_requested';
-      id: string;
-      tool: 'bash';
-      command: string;
-      reason: string;
-      policy: 'ask';
-      suggestedRules: string[];
-    }
-  | {
-      type: 'tool_output_chunk';
-      id: string;
-      text: string;
-      seq: number;
-    }
-  | {
-      type: 'tool_stream_end';
-      id: string;
-      exitCode: number;
-      timedOut: boolean;
-      totalBytes: number;
-      truncated: boolean;
-    }
   | { type: 'content_delta'; text: string }
   | {
       type: 'compaction_start';

@@ -20,16 +20,37 @@ model:
 agent:
   maxSteps: 10
 
-tools:
-  bash:
-    enabled: true
-    timeoutMs: 30000
-  websearch:
-    enabled: true
-  http:
-    enabled: true
-  todowrite:
-    enabled: true
+# Tools are external MCP servers — none are bundled in this image.
+# Add your own executables to a derived Docker image and reference them here.
+#
+# Deployment pattern:
+#   FROM eggai/wally:latest
+#   COPY --from=my-mcp-builder /app/my-tool /usr/local/bin/my-tool
+#   COPY config.yaml /etc/wally/config.yaml
+#
+# Each entry in mcpTools is an MCP server. Two transports are supported:
+#
+#   transport: stdio   — wally spawns the server as a child process per invocation
+#   transport: http    — wally connects to a remote MCP server over HTTP
+
+mcpTools: []
+
+# Example stdio server (local executable on PATH):
+# mcpTools:
+#   - name: accounts
+#     transport: stdio
+#     command: accounts-mcp
+#     args: []
+#     env:
+#       ACCOUNTS_URL: http://accounts:8080
+#
+# Example HTTP server (remote MCP service):
+# mcpTools:
+#   - name: files
+#     transport: http
+#     url: https://files.internal/mcp
+#     headers:
+#       X-Tenant: acme
 
 safety:
   compaction:

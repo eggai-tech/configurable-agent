@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from '../src/agent/events.js';
+import type { ToolResult } from '../src/agent/events.js';
 import { maybeSummarizeToolOutput } from '../src/agent/safety/tool-summary.js';
-import type { ToolResult } from '../src/agent/tools/result.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 function cfg(overrides: Partial<AgentConfig['safety']['toolOutput']> = {}): AgentConfig {
@@ -9,25 +9,7 @@ function cfg(overrides: Partial<AgentConfig['safety']['toolOutput']> = {}): Agen
     systemPrompt: 'SYS',
     model: { provider: 'anthropic', name: 'x' },
     agent: { maxSteps: 10 },
-    tools: {
-      bash: {
-        enabled: false,
-        timeoutMs: 30_000,
-        maxBufferBytes: 1_048_576,
-        policy: {
-          approval: { enabled: false },
-          allowCompound: false,
-          disableBuiltinAllow: false,
-          bypassSecurityChecks: false,
-          allow: [],
-          ask: [],
-          deny: [],
-        },
-      },
-      websearch: { enabled: false, maxResults: 5 },
-      http: { enabled: false, timeoutMs: 30_000, maxResponseBytes: 1_048_576 },
-      todowrite: { enabled: false, maxItems: 50 },
-    },
+    mcpTools: [],
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
@@ -41,35 +23,25 @@ function recorder() {
   return { emit: (e: AgentEvent) => void seen.push(e), seen };
 }
 
-function runtimeExtras() {
-  return {
-    approvals: new Map(),
-    sessionAllowRules: new Set<string>(),
-    pendingApprovals: new Set<string>(),
-  };
-}
-
 function envelope(content: string): ToolResult {
   return {
-    label: 'bash',
+    label: 'some-tool',
     status: 'succeeded',
     content,
-    return_code: 0,
-    args: { command: 'echo hi' },
+    return_code: null,
+    args: {},
     duration_ms: 1,
   };
 }
 
 describe('maybeSummarizeToolOutput', () => {
   it('passes through small envelopes unchanged', async () => {
-    const { emit, seen } = recorder();
+    const { seen } = recorder();
     const summarize = vi.fn();
     const input = envelope('hello');
-    const out = await maybeSummarizeToolOutput(input, 'call-1', 'bash', {
+    const out = await maybeSummarizeToolOutput(input, 'some-tool', {
       config: cfg(),
-      emit,
       summarize,
-      ...runtimeExtras(),
     });
     expect(out).toBe(input);
     expect(out.truncated).toBeUndefined();
@@ -78,14 +50,12 @@ describe('maybeSummarizeToolOutput', () => {
   });
 
   it('summarizes oversized content and marks envelope truncated', async () => {
-    const { emit, seen } = recorder();
+    const { seen } = recorder();
     const summarize = vi.fn(async () => 'the output listed 1000 rows, all green');
     const big = 'line of output '.repeat(200);
-    const out = await maybeSummarizeToolOutput(envelope(big), 'call-2', 'bash', {
+    const out = await maybeSummarizeToolOutput(envelope(big), 'some-tool', {
       config: cfg(),
-      emit,
       summarize,
-      ...runtimeExtras(),
     });
 
     expect(summarize).toHaveBeenCalledTimes(1);
@@ -93,8 +63,8 @@ describe('maybeSummarizeToolOutput', () => {
     expect(out.content).toContain('1000 rows');
     expect(out.content).toContain('HEAD');
     expect(out.content).toContain('TAIL');
-    expect(out.label).toBe('bash');
-    expect(out.return_code).toBe(0);
+    expect(out.label).toBe('some-tool');
+    expect(out.return_code).toBeNull();
     expect(seen).toEqual([]);
   });
 });

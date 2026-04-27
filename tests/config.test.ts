@@ -33,11 +33,11 @@ model:
     const cfg = loadConfig(path);
     expect(cfg.systemPrompt).toBe('be helpful');
     expect(cfg.agent.maxSteps).toBe(10);
-    expect(cfg.tools.bash.enabled).toBe(false);
+    expect(cfg.mcpTools).toEqual([]);
     expect(cfg.output.structured).toBe(false);
   });
 
-  it('accepts a full config with structured output', () => {
+  it('accepts a config with mcpTools stdio server', () => {
     const path = write(
       'config.yaml',
       `systemPrompt: "be precise"
@@ -47,27 +47,50 @@ model:
   temperature: 0.1
 agent:
   maxSteps: 5
-tools:
-  bash:
-    enabled: true
-    timeoutMs: 5000
-  websearch:
-    enabled: true
+mcpTools:
+  - name: accounts
+    transport: stdio
+    command: accounts-mcp
+    env:
+      ACCOUNTS_URL: http://accounts:8080
 output:
-  structured: true
-  schema:
-    type: object
-    properties:
-      answer: { type: string }
-    required: [answer]
+  structured: false
 `,
     );
     const cfg = loadConfig(path);
     expect(cfg.agent.maxSteps).toBe(5);
-    expect(cfg.tools.bash.timeoutMs).toBe(5000);
-    expect(cfg.output.structured).toBe(true);
-    if (cfg.output.structured) {
-      expect(cfg.output.schema).toMatchObject({ type: 'object' });
+    expect(cfg.mcpTools).toHaveLength(1);
+    const server = cfg.mcpTools[0];
+    expect(server?.name).toBe('accounts');
+    expect(server?.transport).toBe('stdio');
+    if (server?.transport === 'stdio') {
+      expect(server.command).toBe('accounts-mcp');
+      expect(server.env).toEqual({ ACCOUNTS_URL: 'http://accounts:8080' });
+    }
+  });
+
+  it('accepts a config with mcpTools http server', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "ok"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+mcpTools:
+  - name: files
+    transport: http
+    url: https://files.internal/mcp
+    headers:
+      X-Tenant: acme
+`,
+    );
+    const cfg = loadConfig(path);
+    expect(cfg.mcpTools).toHaveLength(1);
+    const server = cfg.mcpTools[0];
+    expect(server?.transport).toBe('http');
+    if (server?.transport === 'http') {
+      expect(server.url).toBe('https://files.internal/mcp');
+      expect(server.headers).toEqual({ 'X-Tenant': 'acme' });
     }
   });
 
@@ -111,6 +134,37 @@ output:
 
   it('throws ConfigError when file does not exist', () => {
     expect(() => loadConfig(join(dir, 'missing.yaml'))).toThrow(ConfigError);
+  });
+
+  it('throws ConfigError for mcpTools stdio server missing command', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "ok"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+mcpTools:
+  - name: broken
+    transport: stdio
+`,
+    );
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it('throws ConfigError for mcpTools http server with invalid url', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "ok"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+mcpTools:
+  - name: broken
+    transport: http
+    url: not-a-url
+`,
+    );
+    expect(() => loadConfig(path)).toThrow(ConfigError);
   });
 
   it('accepts an optional evals.dir field', () => {

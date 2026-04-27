@@ -8,25 +8,7 @@ function baseConfig(): AgentConfig {
     systemPrompt: 'SYSTEM',
     model: { provider: 'anthropic', name: 'claude-sonnet-4-6' },
     agent: { maxSteps: 10 },
-    tools: {
-      bash: {
-        enabled: false,
-        timeoutMs: 30_000,
-        maxBufferBytes: 1_048_576,
-        policy: {
-          approval: { enabled: false },
-          allowCompound: false,
-          disableBuiltinAllow: false,
-          bypassSecurityChecks: false,
-          allow: [],
-          ask: [],
-          deny: [],
-        },
-      },
-      websearch: { enabled: false, maxResults: 5 },
-      http: { enabled: false, timeoutMs: 30_000, maxResponseBytes: 1_048_576 },
-      todowrite: { enabled: false, maxItems: 50 },
-    },
+    mcpTools: [],
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },

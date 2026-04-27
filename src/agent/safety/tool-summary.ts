@@ -1,28 +1,15 @@
 import type { AgentConfig } from '../../config/schema.js';
-import type { AgentEmitter } from '../events.js';
-import type { ToolResult } from '../tools/result.js';
+import type { ToolResult } from '../events.js';
 import type { Summarizer } from './compaction.js';
 import { countTextTokens } from './tokens.js';
 
-export type ApprovalDecisionKind = 'allow_once' | 'allow_session' | 'deny';
-
-export interface ApprovalRecord {
-  decision: ApprovalDecisionKind;
-  rule?: string;
-}
-
 export interface ToolSummaryRuntime {
   config: AgentConfig;
-  emit: AgentEmitter;
   summarize: Summarizer;
-  approvals: Map<string, ApprovalRecord>;
-  sessionAllowRules: Set<string>;
-  pendingApprovals: Set<string>;
 }
 
 export async function maybeSummarizeToolOutput(
   envelope: ToolResult,
-  _toolCallId: string,
   toolName: string,
   ctx: ToolSummaryRuntime,
 ): Promise<ToolResult> {

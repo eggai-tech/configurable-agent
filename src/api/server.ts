@@ -18,9 +18,6 @@ export function buildServer(config: AgentConfig) {
     if (requiredEnv && !process.env[requiredEnv]) {
       return c.json({ status: 'not_ready', reason: `${requiredEnv} is not set` }, 503);
     }
-    if (config.tools.websearch.enabled && !process.env.TAVILY_API_KEY) {
-      return c.json({ status: 'not_ready', reason: 'TAVILY_API_KEY is not set' }, 503);
-    }
     return c.json({ status: 'ok' });
   });
 
@@ -38,8 +35,6 @@ export function buildServer(config: AgentConfig) {
     }
 
     const incoming = parsed.data.messages as ModelMessage[];
-    const approvals = parsed.data.approvals;
-    const sessionAllowRules = parsed.data.sessionAllowRules;
 
     return streamSSE(c, async (stream) => {
       const abortController = new AbortController();
@@ -65,7 +60,6 @@ export function buildServer(config: AgentConfig) {
             await writeAgentEvent(stream, event);
           },
           abortController.signal,
-          { approvals, sessionAllowRules },
         );
       } catch (err) {
         logger.error({ err }, 'agent run failed');

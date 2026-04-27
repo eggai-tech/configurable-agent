@@ -6,9 +6,7 @@
   "bin": {
     "wally": "dist/index.js"
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "engines": {
     "node": ">=22"
   },
@@ -25,6 +23,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/google": "^2.0.0",
+    "@ai-sdk/mcp": "^0.0.16",
     "@ai-sdk/openai": "^2.0.0",
     "@ai-sdk/openai-compatible": "^1.0.36",
     "@hono/node-server": "^1.14.0",

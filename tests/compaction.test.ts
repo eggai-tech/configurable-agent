@@ -10,25 +10,7 @@ function cfg(overrides: Partial<AgentConfig['safety']['compaction']> = {}): Agen
     systemPrompt: 'SYS',
     model: { provider: 'anthropic', name: 'x' },
     agent: { maxSteps: 10 },
-    tools: {
-      bash: {
-        enabled: false,
-        timeoutMs: 30_000,
-        maxBufferBytes: 1_048_576,
-        policy: {
-          approval: { enabled: false },
-          allowCompound: false,
-          disableBuiltinAllow: false,
-          bypassSecurityChecks: false,
-          allow: [],
-          ask: [],
-          deny: [],
-        },
-      },
-      websearch: { enabled: false, maxResults: 5 },
-      http: { enabled: false, timeoutMs: 30_000, maxResponseBytes: 1_048_576 },
-      todowrite: { enabled: false, maxItems: 50 },
-    },
+    mcpTools: [],
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100, keepRecentMessages: 2, ...overrides },

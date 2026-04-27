@@ -5,6 +5,29 @@ export type ModelProvider = z.infer<typeof ModelProvider>;
 
 const JsonSchemaObject = z.record(z.unknown());
 
+const McpStdioServerSchema = z.object({
+  name: z.string().min(1),
+  transport: z.literal('stdio'),
+  command: z.string().min(1),
+  args: z.array(z.string()).optional().default([]),
+  cwd: z.string().optional(),
+  env: z.record(z.string()).optional().default({}),
+});
+
+const McpHttpServerSchema = z.object({
+  name: z.string().min(1),
+  transport: z.literal('http'),
+  url: z.string().url(),
+  headers: z.record(z.string()).optional().default({}),
+});
+
+const McpServerSchema = z.discriminatedUnion('transport', [
+  McpStdioServerSchema,
+  McpHttpServerSchema,
+]);
+
+export type McpServerConfig = z.infer<typeof McpServerSchema>;
+
 export const AgentConfigSchema = z
   .object({
     systemPrompt: z.string().min(1),
@@ -22,90 +45,7 @@ export const AgentConfigSchema = z
         maxSteps: z.number().int().positive().default(10),
       })
       .default({ maxSteps: 10 }),
-    tools: z
-      .object({
-        bash: z
-          .object({
-            enabled: z.boolean().default(false),
-            timeoutMs: z.number().int().positive().default(30_000),
-            maxBufferBytes: z.number().int().positive().default(1_048_576),
-            policy: z
-              .object({
-                approval: z
-                  .object({
-                    enabled: z.boolean().default(false),
-                  })
-                  .default({ enabled: false }),
-                allowCompound: z.boolean().default(false),
-                disableBuiltinAllow: z.boolean().default(false),
-                bypassSecurityChecks: z.boolean().default(false),
-                allow: z.array(z.string()).default([]),
-                ask: z.array(z.string()).default([]),
-                deny: z.array(z.string()).default([]),
-              })
-              .default({
-                approval: { enabled: false },
-                allowCompound: false,
-                disableBuiltinAllow: false,
-                bypassSecurityChecks: false,
-                allow: [],
-                ask: [],
-                deny: [],
-              }),
-          })
-          .default({
-            enabled: false,
-            timeoutMs: 30_000,
-            maxBufferBytes: 1_048_576,
-            policy: {
-              approval: { enabled: false },
-              allowCompound: false,
-              disableBuiltinAllow: false,
-              bypassSecurityChecks: false,
-              allow: [],
-              ask: [],
-              deny: [],
-            },
-          }),
-        websearch: z
-          .object({
-            enabled: z.boolean().default(false),
-            maxResults: z.number().int().positive().default(5),
-          })
-          .default({ enabled: false, maxResults: 5 }),
-        http: z
-          .object({
-            enabled: z.boolean().default(false),
-            timeoutMs: z.number().int().positive().default(30_000),
-            maxResponseBytes: z.number().int().positive().default(1_048_576),
-          })
-          .default({ enabled: false, timeoutMs: 30_000, maxResponseBytes: 1_048_576 }),
-        todowrite: z
-          .object({
-            enabled: z.boolean().default(false),
-            maxItems: z.number().int().positive().default(50),
-          })
-          .default({ enabled: false, maxItems: 50 }),
-      })
-      .default({
-        bash: {
-          enabled: false,
-          timeoutMs: 30_000,
-          maxBufferBytes: 1_048_576,
-          policy: {
-            approval: { enabled: false },
-            allowCompound: false,
-            disableBuiltinAllow: false,
-            bypassSecurityChecks: false,
-            allow: [],
-            ask: [],
-            deny: [],
-          },
-        },
-        websearch: { enabled: false, maxResults: 5 },
-        http: { enabled: false, timeoutMs: 30_000, maxResponseBytes: 1_048_576 },
-        todowrite: { enabled: false, maxItems: 50 },
-      }),
+    mcpTools: z.array(McpServerSchema).optional().default([]),
     output: z
       .discriminatedUnion('structured', [
         z.object({ structured: z.literal(false) }),
