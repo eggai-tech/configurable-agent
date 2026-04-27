@@ -7,7 +7,7 @@ import { ConfigError, loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
 import { shutdownTracing, startTracing } from '../observability/tracing.js';
 
-const USAGE = `Usage: wally run --config <path-to-config.yaml>
+const USAGE = `Usage: configurable-agent run --config <path-to-config.yaml>
 
 Reads a JSON conversation from stdin. Writes a single-line JSON run record on
 the last line of stdout. Diagnostic logs go to stderr.
@@ -83,7 +83,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
     writeRunRecord(opts.stdout, record);
     return 0;
   } catch (err) {
-    opts.stderr.write(`wally run crashed: ${errMsg(err)}\n`);
+    opts.stderr.write(`configurable-agent run crashed: ${errMsg(err)}\n`);
     return 2;
   } finally {
     // OTEL export is best-effort. A flush / connection failure here must never
@@ -109,13 +109,13 @@ async function executeRun(
       model: modelOverride,
     });
 
-  const tracer = trace.getTracer('wally-cli');
+  const tracer = trace.getTracer('configurable-agent-cli');
   const baseCtx = parentSpanCtx
     ? trace.setSpanContext(context.active(), parentSpanCtx)
     : context.active();
 
   await context.with(baseCtx, async () => {
-    await tracer.startActiveSpan('wally.run', async (span) => {
+    await tracer.startActiveSpan('configurable-agent.run', async (span) => {
       try {
         await work();
       } finally {

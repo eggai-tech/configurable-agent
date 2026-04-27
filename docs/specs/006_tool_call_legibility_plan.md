@@ -1,4 +1,4 @@
-# Plan — Tool call legibility (wally side)
+# Plan — Tool call legibility (configurable-agent side)
 
 ## Context
 
@@ -14,7 +14,7 @@ across the board.
 
 ### 1. Shared intent field
 
-New export in `wally/src/agent/tools/result.ts`:
+New export in `configurable-agent/src/agent/tools/result.ts`:
 
 ```ts
 export const intentField = {
@@ -32,7 +32,7 @@ Tools updated: bash, http, websearch, todowrite, mo_run.
 
 ### 2. New `mo_run` tool
 
-`wally/src/agent/tools/mo.ts`, patterned on bash.ts streaming.
+`configurable-agent/src/agent/tools/mo.ts`, patterned on bash.ts streaming.
 
 Input:
 - `configPath: string`
@@ -52,13 +52,13 @@ Behavior:
     results without jq.
   - rc 2 → `status: 'error'`, include stderr in content.
 
-Config: `wally/src/config/schema.ts` adds `moRun: { enabled: boolean }`
+Config: `configurable-agent/src/config/schema.ts` adds `moRun: { enabled: boolean }`
 alongside existing tools. Default off. `buildTools()` in `tools/index.ts`
 conditionally includes it.
 
 ### 3. Bash streaming bug fixes
 
-`wally/src/agent/tools/bash.ts`:
+`configurable-agent/src/agent/tools/bash.ts`:
 - Lines 142 + 180: `void emit(...)` → `await emit(...)`.
 - Lines 175-177: emit the decoder-tail string as a final
   `tool_output_chunk` before `tool_stream_end` (currently counted in
@@ -67,20 +67,20 @@ conditionally includes it.
 ## Files
 
 New:
-- `wally/src/agent/tools/mo.ts`
+- `configurable-agent/src/agent/tools/mo.ts`
 
 Modified:
-- `wally/src/agent/tools/result.ts` — `intentField` export
-- `wally/src/agent/tools/bash.ts` — intent + two streaming fixes
-- `wally/src/agent/tools/http.ts` — intent
-- `wally/src/agent/tools/websearch.ts` — intent
-- `wally/src/agent/tools/todowrite.ts` — intent
-- `wally/src/agent/tools/index.ts` — register mo_run
-- `wally/src/config/schema.ts` — `tools.moRun.enabled`
+- `configurable-agent/src/agent/tools/result.ts` — `intentField` export
+- `configurable-agent/src/agent/tools/bash.ts` — intent + two streaming fixes
+- `configurable-agent/src/agent/tools/http.ts` — intent
+- `configurable-agent/src/agent/tools/websearch.ts` — intent
+- `configurable-agent/src/agent/tools/todowrite.ts` — intent
+- `configurable-agent/src/agent/tools/index.ts` — register mo_run
+- `configurable-agent/src/config/schema.ts` — `tools.moRun.enabled`
 
 ## Verification
 
-1. `pnpm --filter wally build` passes.
+1. `pnpm --filter configurable-agent build` passes.
 2. A unit test that spawns `mo_run` against a fixture config asserts
    (a) `tool_output_chunk` events carry the JSON stdout,
    (b) `ToolResult.content` parses as `RunSummary`,

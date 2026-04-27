@@ -3,11 +3,11 @@
 ## Context
 
 Today the bash tool runs every command through `classify()` in
-`wally/src/agent/tools/bash-policy.ts`: builtin read-only allowlist, user
+`configurable-agent/src/agent/tools/bash-policy.ts`: builtin read-only allowlist, user
 allow/ask/deny rules, and a hard compound-command gate that forces `ask` on
 any command containing `;`, `&&`, `||`, `|`, `$()`, backticks, or
 redirections. For `ask`-tier verdicts, `gateCommand()` in
-`wally/src/agent/tools/bash.ts` either (a) requires a human approval when
+`configurable-agent/src/agent/tools/bash.ts` either (a) requires a human approval when
 `policy.approval.enabled=true`, or (b) denies synchronously with
 `no_human_approver` otherwise.
 
@@ -26,7 +26,7 @@ escape hatch.
 ## Approach
 
 Add `tools.bash.policy.bypassSecurityChecks: boolean` (default `false`) to
-the wally agent config. When `true`:
+the configurable-agent agent config. When `true`:
 
 - `classify()` short-circuits and returns `{ decision: 'allow', reason:
   'bypassSecurityChecks', matchedRule: null, isCompound: false,
@@ -42,19 +42,19 @@ is on (nothing ever returns `ask`).
 
 Place the short-circuit inside `classify()` rather than at the top of
 `gateCommand()`. Reason: `classify()` is the one function exercised by
-unit tests in `wally/tests/bash-policy.test.ts`, so the bypass gets tested
+unit tests in `configurable-agent/tests/bash-policy.test.ts`, so the bypass gets tested
 directly without standing up `gateCommand`'s approval-state plumbing.
 
 ## Files to change
 
 | File | Change |
 |---|---|
-| `wally/src/config/schema.ts` | Add `bypassSecurityChecks: z.boolean().default(false)` inside the `tools.bash.policy` object and in its two `.default(...)` blocks. |
-| `wally/src/agent/tools/bash-policy.ts` | Add `bypassSecurityChecks: boolean` to `BashPolicyConfig`. At the top of `classify()`, if `cfg.bypassSecurityChecks` is true, return an `allow` verdict immediately. |
-| `wally/src/agent/tools/bash.ts` | No structural change — `BashToolConfig.policy` already extends `BashPolicyConfig`, so the new field flows through. |
-| `wally/src/agent/tools/index.ts` | Thread `bypassSecurityChecks: policy.bypassSecurityChecks` into the object passed to `createBashTool`. |
-| `wally/src/agent/loop.ts` | Thread `bypassSecurityChecks` in `bashConfigFromAgentConfig()` and extend the inline return type. |
-| `wally/tests/bash-policy.test.ts` | Add a describe block covering: bypass allows unknown command; bypass allows compound; bypass overrides deny; `bypassSecurityChecks=false` keeps current behavior. |
+| `configurable-agent/src/config/schema.ts` | Add `bypassSecurityChecks: z.boolean().default(false)` inside the `tools.bash.policy` object and in its two `.default(...)` blocks. |
+| `configurable-agent/src/agent/tools/bash-policy.ts` | Add `bypassSecurityChecks: boolean` to `BashPolicyConfig`. At the top of `classify()`, if `cfg.bypassSecurityChecks` is true, return an `allow` verdict immediately. |
+| `configurable-agent/src/agent/tools/bash.ts` | No structural change — `BashToolConfig.policy` already extends `BashPolicyConfig`, so the new field flows through. |
+| `configurable-agent/src/agent/tools/index.ts` | Thread `bypassSecurityChecks: policy.bypassSecurityChecks` into the object passed to `createBashTool`. |
+| `configurable-agent/src/agent/loop.ts` | Thread `bypassSecurityChecks` in `bashConfigFromAgentConfig()` and extend the inline return type. |
+| `configurable-agent/tests/bash-policy.test.ts` | Add a describe block covering: bypass allows unknown command; bypass allows compound; bypass overrides deny; `bypassSecurityChecks=false` keeps current behavior. |
 
 ## Gaia side
 
@@ -77,11 +77,11 @@ and wants interactive approval back, they can add it back.
 
 ## Verification
 
-- `pnpm test` in `wally/` — existing bash-policy tests plus the new bypass
+- `pnpm test` in `configurable-agent/` — existing bash-policy tests plus the new bypass
   cases.
 - No runtime verification against a live Gaia cluster as part of this
   change; the config update takes effect on the next pod restart with a
-  wally image that contains this code.
+  configurable-agent image that contains this code.
 
 ## Out of scope
 

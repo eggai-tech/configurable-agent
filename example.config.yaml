@@ -1,5 +1,5 @@
 systemPrompt: |
-  You are Wally, a helpful assistant. Use the tools available to you to answer
+  You are Configurable Agent, a helpful assistant. Use the tools available to you to answer
   the user's question. When you are ready to answer, produce a concise response.
 
   Today is {{today}} (current time: {{now}}). You are running in {{cwd}}.
@@ -24,14 +24,14 @@ agent:
 # Add your own executables to a derived Docker image and reference them here.
 #
 # Deployment pattern:
-#   FROM eggai/wally:latest
+#   FROM eggai/eggai-configurable-agent:latest
 #   COPY --from=my-mcp-builder /app/my-tool /usr/local/bin/my-tool
-#   COPY config.yaml /etc/wally/config.yaml
+#   COPY config.yaml /etc/configurable-agent/config.yaml
 #
 # Each entry in mcpTools is an MCP server. Two transports are supported:
 #
-#   transport: stdio   — wally spawns the server as a child process per invocation
-#   transport: http    — wally connects to a remote MCP server over HTTP
+#   transport: stdio   — configurable-agent spawns the server as a child process per invocation
+#   transport: http    — configurable-agent connects to a remote MCP server over HTTP
 
 mcpTools: []
 

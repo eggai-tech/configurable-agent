@@ -103,7 +103,7 @@ The base image is the configurable-agent. Teams build `FROM` it and add their MC
 binaries. The config file points to those binaries by command name (on `PATH`).
 
 ```dockerfile
-FROM eggai/configurable-agent:latest
+FROM eggai/eggai-configurable-agent:latest
 COPY --from=accounts-mcp-builder /app/accounts-mcp /usr/local/bin/accounts-mcp
-COPY config.yaml /etc/wally/config.yaml
+COPY config.yaml /etc/configurable-agent/config.yaml
 ```

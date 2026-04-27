@@ -2,7 +2,7 @@
 
 ## Context
 
-We want wally to depend on `@eggai-tech/mo` as a regular npm package
+We want configurable-agent to depend on `@eggai-tech/mo` as a regular npm package
 rather than a subprocess. Single node_modules tree in the core-agent
 image, real types for `RunSummary`, and the CLI stays for manual use.
 
@@ -16,7 +16,7 @@ New at the repo root:
 ```yaml
 packages:
   - mo
-  - wally
+  - configurable-agent
 ```
 
 **`package.json`**
@@ -29,21 +29,21 @@ packages:
 }
 ```
 
-Delete `mo/pnpm-lock.yaml` and `wally/pnpm-lock.yaml`. A single
+Delete `mo/pnpm-lock.yaml` and `configurable-agent/pnpm-lock.yaml`. A single
 `pnpm-lock.yaml` at the repo root replaces them after
 `pnpm install`.
 
 Gaia packages (`gaia/backend`, `gaia/ui`) stay outside the workspace —
-they don't import mo or wally as npm deps and already have their own
+they don't import mo or configurable-agent as npm deps and already have their own
 lockfiles.
 
-### 2. Wally package.json
+### 2. Configurable Agent package.json
 
 Add `"@eggai-tech/mo": "workspace:*"` to `dependencies`. pnpm resolves
 this to the local `mo/` during install; publish tooling (if anyone
-ever publishes wally) rewrites it to the concrete version.
+ever publishes configurable-agent) rewrites it to the concrete version.
 
-### 3. Rewrite `wally/src/agent/tools/mo.ts`
+### 3. Rewrite `configurable-agent/src/agent/tools/mo.ts`
 
 Before: spawn subprocess, capture stdout/stderr, parse JSON at close.
 After: import and call `runEvals`.
@@ -81,12 +81,12 @@ Error handling:
   with mo; for now the tool loses abort support on its mo call
   (acceptable for the POC).
 
-No more timer; the wally agent loop's abortSignal is the single
+No more timer; the configurable-agent agent loop's abortSignal is the single
 cancellation surface.
 
 ### 4. Dockerfiles
 
-**`wally/Dockerfile`** — build context moves to the repo root.
+**`configurable-agent/Dockerfile`** — build context moves to the repo root.
 
 Rewrite:
 
@@ -98,23 +98,23 @@ WORKDIR /repo
 RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY mo/package.json ./mo/
-COPY wally/package.json ./wally/
+COPY configurable-agent/package.json ./configurable-agent/
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile --filter wally... --filter @eggai-tech/mo...
+    pnpm install --frozen-lockfile --filter configurable-agent... --filter @eggai-tech/mo...
 
 FROM workspace-deps AS build
 COPY mo ./mo
-COPY wally ./wally
+COPY configurable-agent ./configurable-agent
 RUN pnpm --filter @eggai-tech/mo build \
- && pnpm --filter wally build
-# Flatten wally + its workspace deps into a publish-ready tree.
-RUN pnpm --filter wally deploy --prod /out
+ && pnpm --filter configurable-agent build
+# Flatten configurable-agent + its workspace deps into a publish-ready tree.
+RUN pnpm --filter configurable-agent deploy --prod /out
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
-    CONFIG_PATH=/etc/wally/config.yaml
+    CONFIG_PATH=/etc/configurable-agent/config.yaml
 COPY --from=build /out /app
 USER node
 EXPOSE 3000
@@ -125,13 +125,13 @@ CMD ["node", "dist/index.js", "serve"]
 tree with `@eggai-tech/mo` resolved from the workspace, so we don't
 need pnpm at runtime.
 
-Build command changes from `docker build wally/` to
-`docker build -f wally/Dockerfile .` at the repo root.
+Build command changes from `docker build configurable-agent/` to
+`docker build -f configurable-agent/Dockerfile .` at the repo root.
 
 **`gaia/core-agent/Dockerfile`** — strip the mo-build stage.
 
 Before: a `mo-build` stage + COPY-from + a `/opt/mo` tree.
-After: `FROM ${WALLY_IMAGE}` already contains mo at
+After: `FROM ${CONFIGURABLE_AGENT_IMAGE}` already contains mo at
 `/app/node_modules/@eggai-tech/mo`. The CLI wrapper just points
 there:
 
@@ -142,7 +142,7 @@ RUN printf '#!/bin/sh\nexec node /app/node_modules/@eggai-tech/mo/dist/index.js 
  && mo --version
 ```
 
-Everything else (kubectl, helm, wally wrapper) stays.
+Everything else (kubectl, helm, configurable-agent wrapper) stays.
 
 ## Files
 
@@ -151,32 +151,32 @@ Everything else (kubectl, helm, wally wrapper) stays.
 - `package.json` (root)
 
 **Modified**
-- `wally/package.json` — add `@eggai-tech/mo` dep.
-- `wally/src/agent/tools/mo.ts` — rewrite to use import.
-- `wally/Dockerfile` — repo-root context, pnpm workspace install,
+- `configurable-agent/package.json` — add `@eggai-tech/mo` dep.
+- `configurable-agent/src/agent/tools/mo.ts` — rewrite to use import.
+- `configurable-agent/Dockerfile` — repo-root context, pnpm workspace install,
   pnpm deploy for runtime.
 - `gaia/core-agent/Dockerfile` — drop mo-build stage, point wrapper
-  at wally's node_modules.
+  at configurable-agent's node_modules.
 
 **Deleted**
 - `mo/pnpm-lock.yaml`
-- `wally/pnpm-lock.yaml`
+- `configurable-agent/pnpm-lock.yaml`
 
 ## Verification
 
 1. `pnpm install` at repo root generates root `pnpm-lock.yaml` and
-   `wally/node_modules/@eggai-tech/mo` symlink to `mo/`.
+   `configurable-agent/node_modules/@eggai-tech/mo` symlink to `mo/`.
 2. `pnpm --filter @eggai-tech/mo build` emits declarations.
-3. `pnpm --filter wally build` type-checks with the real runEvals
+3. `pnpm --filter configurable-agent build` type-checks with the real runEvals
    signature (no `any`).
 4. Existing `mo` CLI path still works:
    `pnpm --filter @eggai-tech/mo exec mo --help`.
-5. `docker build -f wally/Dockerfile -t wally:dev .` from repo root
+5. `docker build -f configurable-agent/Dockerfile -t eggai-configurable-agent:dev .` from repo root
    succeeds; `/app/node_modules/@eggai-tech/mo/dist/` is present.
 6. `docker build -f gaia/core-agent/Dockerfile -t gaia-core-agent:dev .`
    succeeds; `mo --version` runs inside the built image.
-7. Runtime smoke: `pnpm --filter wally start` with a test config
+7. Runtime smoke: `pnpm --filter configurable-agent start` with a test config
    that enables `moRun`, trigger a tool call, confirm per-case
    progress streams + final JSON arrives.
-8. Core-agent config.yaml still validates against wally's schema
+8. Core-agent config.yaml still validates against configurable-agent's schema
    (unchanged since the previous round).

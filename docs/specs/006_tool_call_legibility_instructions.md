@@ -1,6 +1,6 @@
 # Make tool calls from the core agent more legible
 
-The user's complaint: tool-output streaming from wally to the gaia UI "doesn't
+The user's complaint: tool-output streaming from configurable-agent to the gaia UI "doesn't
 work great." After investigation, the actual issue is how the core agent
 composes tool calls, not the streaming layer.
 
@@ -15,7 +15,7 @@ Two symptoms:
    at-a-glance preview is dominated by boilerplate rather than what the
    call is actually about.
 
-Scope for wally:
+Scope for configurable-agent:
 
 - Add a dedicated `mo_run` tool that streams mo's JSON as
   `tool_output_chunk` events (so the user sees it live) and returns a

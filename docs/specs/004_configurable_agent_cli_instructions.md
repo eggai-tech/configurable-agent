@@ -1,10 +1,10 @@
-# 004 — Wally CLI: instructions
+# 004 — Configurable Agent CLI: instructions
 
-> **Revision note (2026-04-19):** The original contract below listed `toolCalls` and `steps` on the stdout record. A follow-up decision reduced the record to `{ ok, finalText, error }` — Mo treats wally as a black box, so per-tool visibility lives in OTEL spans, not stdout. See `004_wally_cli_plan.md` for the final design.
+> **Revision note (2026-04-19):** The original contract below listed `toolCalls` and `steps` on the stdout record. A follow-up decision reduced the record to `{ ok, finalText, error }` — Mo treats configurable-agent as a black box, so per-tool visibility lives in OTEL spans, not stdout. See `004_configurable_agent_cli_plan.md` for the final design.
 
 ## Task
 
-Add a CLI to wally. Today it's an HTTP server (`POST /invoke` with SSE streaming). A new sibling component, Mo, runs evals against a wally config by spawning wally as a subprocess. For this to work, wally needs a CLI that accepts a conversation on stdin and emits a structured run record on stdout.
+Add a CLI to configurable-agent. Today it's an HTTP server (`POST /invoke` with SSE streaming). A new sibling component, Mo, runs evals against a configurable-agent config by spawning configurable-agent as a subprocess. For this to work, configurable-agent needs a CLI that accepts a conversation on stdin and emits a structured run record on stdout.
 
 ## Rules
 
@@ -14,23 +14,23 @@ Add a CLI to wally. Today it's an HTTP server (`POST /invoke` with SSE streaming
 
 ## Reuse, don't reinvent
 
-Wally's agent loop already exists — wrap it behind a CLI. Do not duplicate it.
+Configurable Agent's agent loop already exists — wrap it behind a CLI. Do not duplicate it.
 
-- Agent loop: `wally/src/agent/loop.ts`
-- HTTP entrypoint that uses the loop today: `wally/src/api/server.ts`. The CLI should call the same building blocks.
-- Config loader: `wally/src/config/load.ts` + `wally/src/config/schema.ts`. The schema already has an optional `evals` field — leave it alone.
-- OTEL setup: `wally/src/observability/tracing.ts`. Already reads `OTEL_EXPORTER_OTLP_ENDPOINT`. The CLI must also honor `TRACEPARENT` as the parent span context.
-- Tests: `wally/tests/*.test.ts` — Vitest with `MockLanguageModelV2`. Match this style.
+- Agent loop: `configurable-agent/src/agent/loop.ts`
+- HTTP entrypoint that uses the loop today: `configurable-agent/src/api/server.ts`. The CLI should call the same building blocks.
+- Config loader: `configurable-agent/src/config/load.ts` + `configurable-agent/src/config/schema.ts`. The schema already has an optional `evals` field — leave it alone.
+- OTEL setup: `configurable-agent/src/observability/tracing.ts`. Already reads `OTEL_EXPORTER_OTLP_ENDPOINT`. The CLI must also honor `TRACEPARENT` as the parent span context.
+- Tests: `configurable-agent/tests/*.test.ts` — Vitest with `MockLanguageModelV2`. Match this style.
 
 ## Contract
 
 Invocation:
 
 ```
-wally run --config <path-to-wally-config.yaml>
+configurable-agent run --config <path-to-configurable-agent-config.yaml>
 ```
 
-The binary name is `wally`. Add a `bin` entry in `wally/package.json`. The HTTP server must remain intact — keep it behind `wally serve`.
+The binary name is `configurable-agent`. Add a `bin` entry in `configurable-agent/package.json`. The HTTP server must remain intact — keep it behind `configurable-agent serve`.
 
 **Input (stdin):** single JSON object, no streaming:
 
@@ -64,19 +64,19 @@ Diagnostic logs go to stderr, not stdout. Mo parses the last stdout line as JSON
 
 **Env vars:**
 - `TRACEPARENT` — W3C trace context (`00-<32-hex>-<16-hex>-<2-hex>`). If set, all OTEL spans the run emits must be children of this context.
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — where to send spans. Already supported by wally.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — where to send spans. Already supported by configurable-agent.
 
 **Exit code:** `0` when the agent loop ran to completion (regardless of whether the output is "correct"). Non-zero when the process failed to run — crash, config error, unhandled exception. Mo treats exit≠0 as "the agent couldn't even run," which is different from "it ran but gave a bad answer."
 
 ## Reference
 
-`mo/tests/wally-runner.test.ts` contains shell-based fakes of this contract — they show the exact stdout shape Mo expects.
+`mo/tests/configurable-agent-runner.test.ts` contains shell-based fakes of this contract — they show the exact stdout shape Mo expects.
 
 ## Out of scope
 
 - Anything in `/mo` or `/gaia`.
 - Changes to the HTTP interface's behavior beyond what's needed for the CLI dispatcher.
-- Langfuse SDK integration in wally. Wally only emits OTEL; Mo is responsible for Langfuse.
+- Langfuse SDK integration in configurable-agent. Configurable Agent only emits OTEL; Mo is responsible for Langfuse.
 - EggAI SDK / message-bus integration.
 
 ## Verify
@@ -88,5 +88,5 @@ Diagnostic logs go to stderr, not stdout. Mo parses the last stdout line as JSON
 
 ## Decisions (confirmed with user)
 
-- Bare `wally` prints usage and exits `2`. Explicit subcommand required. Dockerfile `CMD` updated to `["node", "dist/index.js", "serve"]`.
+- Bare `configurable-agent` prints usage and exits `2`. Explicit subcommand required. Dockerfile `CMD` updated to `["node", "dist/index.js", "serve"]`.
 - `toolCalls[].output` is the tool envelope's **content string**, not the full envelope. Minimal per contract.

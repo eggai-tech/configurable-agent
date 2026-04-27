@@ -39,7 +39,7 @@ export async function runAgent(
       model,
       prompt,
       abortSignal,
-      experimental_telemetry: { isEnabled: true, functionId: 'wally.summarize' },
+      experimental_telemetry: { isEnabled: true, functionId: 'configurable-agent.summarize' },
     });
     return text;
   };
@@ -69,7 +69,7 @@ export async function runAgent(
         abortSignal,
         experimental_telemetry: {
           isEnabled: true,
-          functionId: 'wally.step',
+          functionId: 'configurable-agent.step',
           metadata: { step: stepsRun, maxSteps },
         },
       });
@@ -150,7 +150,10 @@ export async function runAgent(
               messages,
               schema: jsonSchema(config.output.schema),
               abortSignal,
-              experimental_telemetry: { isEnabled: true, functionId: 'wally.structured' },
+              experimental_telemetry: {
+                isEnabled: true,
+                functionId: 'configurable-agent.structured',
+              },
             });
             structured = object;
           } catch (err) {

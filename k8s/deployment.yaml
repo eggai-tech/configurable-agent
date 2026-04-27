@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: wally
+  name: configurable-agent
   labels:
-    app.kubernetes.io/name: wally
+    app.kubernetes.io/name: configurable-agent
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: wally
+      app.kubernetes.io/name: configurable-agent
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: wally
+        app.kubernetes.io/name: configurable-agent
     spec:
       # Route host.docker.internal to the kind network's host-gateway so the
       # pod can reach services on the developer's laptop (e.g. a local ollama).
@@ -20,15 +20,15 @@ spec:
         - ip: "172.23.0.1"
           hostnames: ["host.docker.internal"]
       containers:
-        - name: wally
-          image: wally:latest
+        - name: configurable-agent
+          image: eggai-configurable-agent:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000
           env:
             - name: CONFIG_PATH
-              value: /etc/wally/config.yaml
+              value: /etc/configurable-agent/config.yaml
             - name: PORT
               value: "3000"
             - name: LOG_LEVEL
@@ -38,10 +38,10 @@ spec:
             # Expected keys: ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
             # plus TAVILY_API_KEY if websearch is enabled.
             - secretRef:
-                name: wally-provider-keys
+                name: configurable-agent-provider-keys
           volumeMounts:
             - name: config
-              mountPath: /etc/wally
+              mountPath: /etc/configurable-agent
               readOnly: true
           readinessProbe:
             httpGet:
@@ -73,7 +73,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: wally-config
+            name: configurable-agent-config
             items:
               - key: config.yaml
                 path: config.yaml

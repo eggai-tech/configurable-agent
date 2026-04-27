@@ -7,7 +7,7 @@ import { shutdownTracing, startTracing } from '../observability/tracing.js';
 export function runServe(): void {
   startTracing();
 
-  const configPath = process.env.CONFIG_PATH ?? '/etc/wally/config.yaml';
+  const configPath = process.env.CONFIG_PATH ?? '/etc/configurable-agent/config.yaml';
   const port = Number(process.env.PORT ?? 3000);
 
   const config = loadConfig(configPath);
@@ -19,7 +19,7 @@ export function runServe(): void {
   const app = buildServer(config);
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
-    logger.info({ port: info.port }, 'wally listening');
+    logger.info({ port: info.port }, 'configurable-agent listening');
   });
 
   const shutdown = async (signal: string) => {

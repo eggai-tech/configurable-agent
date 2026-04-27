@@ -2,15 +2,15 @@
 
 ## Context
 
-Today the bash tool at `wally/src/agent/tools/bash.ts` runs `execFile('/bin/sh', ['-c', command])` with no sandboxing, no approval, no streaming, and full pod env inherited (including provider API keys). The system prompt at `gaia/core-agent/config.yaml:76-77` *asks* the model to confirm commands, but nothing enforces it — the model can mutate the cluster unilaterally since the Gaia core-agent runs as cluster-admin (acknowledged POC-only limitation in `gaia/README.md:138-143`).
+Today the bash tool at `configurable-agent/src/agent/tools/bash.ts` runs `execFile('/bin/sh', ['-c', command])` with no sandboxing, no approval, no streaming, and full pod env inherited (including provider API keys). The system prompt at `gaia/core-agent/config.yaml:76-77` *asks* the model to confirm commands, but nothing enforces it — the model can mutate the cluster unilaterally since the Gaia core-agent runs as cluster-admin (acknowledged POC-only limitation in `gaia/README.md:138-143`).
 
-This change adds (a) a policy-gated approval flow carried by the existing `POST /invoke` API (keeping Wally stateless) and (b) realtime output streaming. Audit logging and secret redaction are deliberately deferred as follow-ups.
+This change adds (a) a policy-gated approval flow carried by the existing `POST /invoke` API (keeping Configurable Agent stateless) and (b) realtime output streaming. Audit logging and secret redaction are deliberately deferred as follow-ups.
 
 ## Approach
 
 ### Stateless approval flow
 
-**Hard constraint: Wally holds no state between API calls.** The client (Gaia frontend, or any caller) owns all conversation + approval state. Approvals ride on the next `POST /invoke`, not a side-channel endpoint.
+**Hard constraint: Configurable Agent holds no state between API calls.** The client (Gaia frontend, or any caller) owns all conversation + approval state. Approvals ride on the next `POST /invoke`, not a side-channel endpoint.
 
 **`POST /invoke` request schema grows two optional fields**:
 ```
@@ -28,7 +28,7 @@ This change adds (a) a policy-gated approval flow carried by the existing `POST 
 
 **Parallel tool calls are first-class.** The agent may emit multiple tool_uses in a single assistant turn. Each is classified independently; each unapproved `ask` call gets its own `tool_approval_requested` event; the client collects decisions for all of them and sends them back in one `approvals[]` array on the next request.
 
-**Per-request flow inside Wally (still fully stateless across requests):**
+**Per-request flow inside Configurable Agent (still fully stateless across requests):**
 
 1. Parse request. Build in-request approval map `Map<toolCallId, Decision>` from `approvals[]`. Union `sessionAllowRules[]` with built-ins into an in-request allow set.
 2. Scan `messages` for any assistant tool_use that has no matching tool_result (this happens when a prior request ended with pending approvals). For each such pending tool_use:
@@ -60,7 +60,7 @@ One config flag: `tools.bash.policy.approval.enabled`. Default **`false`**.
 
 ### Policy engine
 
-**Config** (add to `wally/src/config/schema.ts` under `tools.bash`):
+**Config** (add to `configurable-agent/src/config/schema.ts` under `tools.bash`):
 ```
 policy: {
   approval: { enabled: boolean (default false) },
@@ -81,12 +81,12 @@ policy: {
 4. Matches builtin read-only list, user `allow`, or `sessionAllowRules` → `allow`.
 5. Default → `ask`.
 
-**Builtin read-only allowlist** (hardcoded constant in new `wally/src/agent/tools/bash-policy.ts`):
+**Builtin read-only allowlist** (hardcoded constant in new `configurable-agent/src/agent/tools/bash-policy.ts`):
 `ls, pwd, whoami, id, date, uname, cat, head, tail, wc, file, stat, grep, rg, find, ps, df, du, jq, kubectl get, kubectl describe, kubectl logs, kubectl top, kubectl version, kubectl config current-context, kubectl config get-contexts, helm list, helm status, helm get values, git status, git log, git diff, git show, git branch`.
 
 **Deliberate exclusions**: `env`, `printenv`, `set`, `export`, `history` — these leak the pod's provider API keys into the transcript. `find -exec` and `cat > file` are caught by the compound check.
 
-**Session rules are client-owned.** When an approval is `allow_session` with a rule, the client adds that rule to its local `sessionAllowRules[]` and sends the accumulated list on every subsequent request. Wally never persists session state.
+**Session rules are client-owned.** When an approval is `allow_session` with a rule, the client adds that rule to its local `sessionAllowRules[]` and sends the accumulated list on every subsequent request. Configurable Agent never persists session state.
 
 ### Output streaming
 
@@ -96,11 +96,11 @@ Swap `execFile` for `spawn('/bin/sh', ['-c', command], { signal: abortSignal })`
 
 **Timeout**: manual `setTimeout` → `child.kill('SIGTERM')` (spawn doesn't have built-in timeout). Cleared on `close`.
 
-**Final `execute()` return value**: awaits `child.on('close')`, returns `{ stdout, stderr, exitCode, timedOut, truncated }`, then passes through existing `maybeSummarizeToolOutput` (`wally/src/agent/safety/tool-summary.ts`). Client sees full realtime stream via `tool_stdout_chunk`; model sees possibly-summarized result via existing `tool_result`.
+**Final `execute()` return value**: awaits `child.on('close')`, returns `{ stdout, stderr, exitCode, timedOut, truncated }`, then passes through existing `maybeSummarizeToolOutput` (`configurable-agent/src/agent/safety/tool-summary.ts`). Client sees full realtime stream via `tool_stdout_chunk`; model sees possibly-summarized result via existing `tool_result`.
 
 Emit `tool_stream_end { id, exitCode, timedOut, totalBytes, truncated }` right before returning so the frontend can close the stream view cleanly.
 
-### New SSE event shapes (`wally/src/agent/events.ts`)
+### New SSE event shapes (`configurable-agent/src/agent/events.ts`)
 
 Add to the existing `AgentEvent` discriminated union:
 ```
@@ -117,25 +117,25 @@ No `run_started`, no `tool_approval_resolved`, no `runId` anywhere — those wer
 
 | File | Change |
 |---|---|
-| `wally/src/config/schema.ts` | Add `tools.bash.policy` sub-schema with defaults (~20 LOC). `approval.enabled` defaults to **false**. |
-| `wally/src/agent/events.ts` | Add 3 new `AgentEvent` variants: `tool_approval_requested`, `tool_stdout_chunk`, `tool_stream_end` (~15 LOC) |
-| `wally/src/api/request.ts` | Extend the `/invoke` request schema with optional `approvals: ApprovalDecision[]` and `sessionAllowRules: string[]` (~15 LOC) |
-| `wally/src/agent/safety/tool-summary.ts` | Extend `ToolSummaryRuntime` with `approvals: Map<toolCallId, Decision>`, `sessionAllowRules: Set<string>`, `pendingApprovals: Set<toolCallId>`. No behavior change to `maybeSummarizeToolOutput` (~8 LOC) |
-| `wally/src/agent/tools/bash-policy.ts` *(new)* | Builtin allowlist + `classify(command, cfg, sessionRules)` using `shell-quote` (~120 LOC) |
-| `wally/src/agent/tools/bash.ts` | Rewrite: classify → consult in-request approvals → (deny path / execute path / emit `tool_approval_requested` + return pending-sentinel path) → `spawn` with streaming → summarize. Keep external shape `createBashTool(cfg, ctx)` (~180 LOC, up from 70) |
-| `wally/src/agent/tools/index.ts` | Thread new cfg subtree and ctx fields (~5 LOC) |
-| `wally/src/agent/loop.ts` | Two changes: (1) pre-`streamText` resolver that walks `messages` for pending tool_uses and resolves them using `approvals[]` before entering the loop; (2) stopWhen/abort logic that halts the loop when `pendingApprovals` is non-empty after a batch. Build the per-request `ToolSummaryRuntime` from the request. (~60 LOC) |
-| `wally/src/api/server.ts` | Pass `approvals` + `sessionAllowRules` from request into `runAgent`. **No new endpoint.** (~10 LOC) |
+| `configurable-agent/src/config/schema.ts` | Add `tools.bash.policy` sub-schema with defaults (~20 LOC). `approval.enabled` defaults to **false**. |
+| `configurable-agent/src/agent/events.ts` | Add 3 new `AgentEvent` variants: `tool_approval_requested`, `tool_stdout_chunk`, `tool_stream_end` (~15 LOC) |
+| `configurable-agent/src/api/request.ts` | Extend the `/invoke` request schema with optional `approvals: ApprovalDecision[]` and `sessionAllowRules: string[]` (~15 LOC) |
+| `configurable-agent/src/agent/safety/tool-summary.ts` | Extend `ToolSummaryRuntime` with `approvals: Map<toolCallId, Decision>`, `sessionAllowRules: Set<string>`, `pendingApprovals: Set<toolCallId>`. No behavior change to `maybeSummarizeToolOutput` (~8 LOC) |
+| `configurable-agent/src/agent/tools/bash-policy.ts` *(new)* | Builtin allowlist + `classify(command, cfg, sessionRules)` using `shell-quote` (~120 LOC) |
+| `configurable-agent/src/agent/tools/bash.ts` | Rewrite: classify → consult in-request approvals → (deny path / execute path / emit `tool_approval_requested` + return pending-sentinel path) → `spawn` with streaming → summarize. Keep external shape `createBashTool(cfg, ctx)` (~180 LOC, up from 70) |
+| `configurable-agent/src/agent/tools/index.ts` | Thread new cfg subtree and ctx fields (~5 LOC) |
+| `configurable-agent/src/agent/loop.ts` | Two changes: (1) pre-`streamText` resolver that walks `messages` for pending tool_uses and resolves them using `approvals[]` before entering the loop; (2) stopWhen/abort logic that halts the loop when `pendingApprovals` is non-empty after a batch. Build the per-request `ToolSummaryRuntime` from the request. (~60 LOC) |
+| `configurable-agent/src/api/server.ts` | Pass `approvals` + `sessionAllowRules` from request into `runAgent`. **No new endpoint.** (~10 LOC) |
 | `gaia/core-agent/config.yaml` | Drop the unenforced "ask the user to confirm" lines from the system prompt now that enforcement is real (-2 LOC) |
-| `wally/package.json` | Add `shell-quote` + `@types/shell-quote` via `pnpm add` (do not hand-edit per `wally/CLAUDE.md`) |
-| `wally/tests/bash-policy.test.ts` *(new)* | Unit tests for `classify()` (~100 LOC) |
+| `configurable-agent/package.json` | Add `shell-quote` + `@types/shell-quote` via `pnpm add` (do not hand-edit per `configurable-agent/CLAUDE.md`) |
+| `configurable-agent/tests/bash-policy.test.ts` *(new)* | Unit tests for `classify()` (~100 LOC) |
 
 Net: ~500 LOC added. No existing tool's external shape changes.
 
 **Reused utilities** (don't reinvent):
-- `maybeSummarizeToolOutput` in `wally/src/agent/safety/tool-summary.ts` — final result still flows through it.
-- `AgentEmitter` in `wally/src/agent/events.ts` — new events added to the existing union.
-- Existing `streamSSE` wiring in `wally/src/api/server.ts`.
+- `maybeSummarizeToolOutput` in `configurable-agent/src/agent/safety/tool-summary.ts` — final result still flows through it.
+- `AgentEmitter` in `configurable-agent/src/agent/events.ts` — new events added to the existing union.
+- Existing `streamSSE` wiring in `configurable-agent/src/api/server.ts`.
 - AI SDK's `streamText` stop-condition hooks for halting on pending approvals.
 
 ## Follow-ups (explicitly out of scope)
@@ -147,7 +147,7 @@ Net: ~500 LOC added. No existing tool's external shape changes.
 
 ## Verification
 
-**Unit tests** in new `wally/tests/bash-policy.test.ts`:
+**Unit tests** in new `configurable-agent/tests/bash-policy.test.ts`:
 - `kubectl get pods` → allow
 - `kubectl delete pod foo` → ask
 - `rm -rf /` with `deny: ['rm']` → deny
@@ -156,7 +156,7 @@ Net: ~500 LOC added. No existing tool's external shape changes.
 - `kubectl get $(whoami)` → ask (command substitution detected)
 - Session rule `'kubectl get'` in `sessionAllowRules` → matching call classifies `allow`; compound variant still `ask`
 
-**Integration** against a running Wally dev server. Run in **both** `approval.enabled: true` and `approval.enabled: false` configs:
+**Integration** against a running Configurable Agent dev server. Run in **both** `approval.enabled: true` and `approval.enabled: false` configs:
 - Trivial command (`ls /tmp`) in either mode: SSE sequence is `tool_call` → `tool_stdout_chunk`+ → `tool_stream_end` → `tool_result` → `final`. No approval event.
 - **Autonomous mode**, `ask`-tier command: tool_result is `{ denied: true, reason: 'no_human_approver' }`; no `tool_approval_requested` event; model continues within `maxSteps`.
 - **Interactive mode, first POST**: model issues `kubectl delete pod foo`; `tool_approval_requested` event fires; stream ends with no tool_result for that toolCallId.
@@ -168,10 +168,10 @@ Net: ~500 LOC added. No existing tool's external shape changes.
 - Buffer overrun: `yes | head -n 100000000` with `maxBufferBytes=1024`; chunks keep arriving, `tool_stream_end.truncated=true`, model's `tool_result` is the summarized truncated payload.
 - Abort: client closes SSE mid-stream; child process receives SIGTERM; no orphan processes.
 
-**Manual smoke**: point Gaia dev frontend (once its UI follow-up lands) at this Wally build, run a session that hits all three tiers + parallel tool calls, confirm approval UI correlates by `toolCallId`.
+**Manual smoke**: point Gaia dev frontend (once its UI follow-up lands) at this Configurable Agent build, run a session that hits all three tiers + parallel tool calls, confirm approval UI correlates by `toolCallId`.
 
 ## Open decisions
 
-1. **Pending-tool-call representation between requests.** Options: (a) client sends back messages with the partial assistant turn (tool_uses present, no tool_results) and Wally synthesizes tool_results from `approvals[]` before resuming; (b) client sends messages with placeholder tool_results that Wally rewrites. Recommend (a) — it matches the Vercel AI SDK's documented human-in-the-loop pattern and means messages never contain transient "pending" markers.
+1. **Pending-tool-call representation between requests.** Options: (a) client sends back messages with the partial assistant turn (tool_uses present, no tool_results) and Configurable Agent synthesizes tool_results from `approvals[]` before resuming; (b) client sends messages with placeholder tool_results that Configurable Agent rewrites. Recommend (a) — it matches the Vercel AI SDK's documented human-in-the-loop pattern and means messages never contain transient "pending" markers.
 2. **Compound-command UX.** Strict v1 means `kubectl get pods | jq ...` prompts. Annoying but correct. v2 could add per-segment evaluation.
 3. **Authenticating approvals.** `POST /invoke` is currently unauthenticated (POC posture). When auth lands, the `approvals[]` carrier inherits it for free — no separate endpoint to gate. Flag for when auth work begins.

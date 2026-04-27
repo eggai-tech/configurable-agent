@@ -5,7 +5,7 @@ import { runServe } from './modes/serve.js';
 
 const program = new Command();
 
-program.name('wally').version('0.1.0', '-v, --version');
+program.name('configurable-agent').version('0.1.0', '-v, --version');
 
 program
   .command('serve')

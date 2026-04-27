@@ -1,8 +1,8 @@
-# 004 — Wally CLI: plan
+# 004 — Configurable Agent CLI: plan
 
 ## Context
 
-Wally runs only as an HTTP server (`POST /invoke` with SSE in `src/api/server.ts`). Mo will spawn wally as a subprocess during eval runs, using a CLI `wally run --config <path>` that reads a conversation JSON from stdin and emits a single structured run record as the last stdout line (see `mo/tests/wally-runner.test.ts` for the consumer contract). Mo also forwards `TRACEPARENT` and `OTEL_EXPORTER_OTLP_ENDPOINT` so its spans can re-parent Langfuse traces.
+Configurable Agent runs only as an HTTP server (`POST /invoke` with SSE in `src/api/server.ts`). Mo will spawn configurable-agent as a subprocess during eval runs, using a CLI `configurable-agent run --config <path>` that reads a conversation JSON from stdin and emits a single structured run record as the last stdout line (see `mo/tests/configurable-agent-runner.test.ts` for the consumer contract). Mo also forwards `TRACEPARENT` and `OTEL_EXPORTER_OTLP_ENDPOINT` so its spans can re-parent Langfuse traces.
 
 The agent machinery (loop, tools, config, tracing) is intact. This change is purely an adapter around `runAgent()` — no duplication of the loop.
 
@@ -15,9 +15,9 @@ The agent machinery (loop, tools, config, tracing) is intact. This change is pur
 
 ### Subcommand layout
 
-- `wally serve` → existing HTTP server.
-- `wally run --config <path>` → new CLI mode.
-- Bare `wally` or any unknown token → usage to stderr, exit 2.
+- `configurable-agent serve` → existing HTTP server.
+- `configurable-agent run --config <path>` → new CLI mode.
+- Bare `configurable-agent` or any unknown token → usage to stderr, exit 2.
 
 `Dockerfile` `CMD` changes from `["node", "dist/index.js"]` to `["node", "dist/index.js", "serve"]`. k8s manifests inherit image `CMD`, so no manifest edit is needed.
 
@@ -52,12 +52,12 @@ Steps:
 3. Read stdin to buffer. Parse JSON. Validate with `InvokeRequestSchema` (`src/api/request.ts`).
 4. `loadConfig(configPath)` from `src/config/load.ts`.
    — failures in 1–4 → exit 2 with stderr message.
-5. If `env.TRACEPARENT` matches `00-<32hex>-<16hex>-<2hex>`, build a remote `SpanContext` and establish it via `trace.setSpanContext(context.active(), parent)`. Wrap the agent call in `tracer.startActiveSpan('wally.run', ...)` inside `context.with(parentCtx, ...)`. All child spans nest under this root, which nests under Mo's span via the TRACEPARENT link.
+5. If `env.TRACEPARENT` matches `00-<32hex>-<16hex>-<2hex>`, build a remote `SpanContext` and establish it via `trace.setSpanContext(context.active(), parent)`. Wrap the agent call in `tracer.startActiveSpan('configurable-agent.run', ...)` inside `context.with(parentCtx, ...)`. All child spans nest under this root, which nests under Mo's span via the TRACEPARENT link.
 6. Collector emit:
    - `final` → capture `content` → `finalText`.
    - `error` → capture first `message`.
    - `tool_approval_requested` → set a flag so an approval halt without `final` surfaces as a structured `error`.
-   - All other events: ignored. Wally is a black box to Mo — per-tool details are visible via OTEL, not stdout.
+   - All other events: ignored. Configurable Agent is a black box to Mo — per-tool details are visible via OTEL, not stdout.
 7. `runAgent(config, messages, emit, undefined, { approvals, sessionAllowRules, model: modelOverride })`.
 8. Build the record:
    ```ts
@@ -87,7 +87,7 @@ Mo's runner treats non-zero as "couldn't run," which is the split we want.
 
 ### `bin` and build
 
-- Add to `package.json`: `"bin": { "wally": "dist/index.js" }`.
+- Add to `package.json`: `"bin": { "configurable-agent": "dist/index.js" }`.
 - Add `#!/usr/bin/env node` shebang to `src/index.ts`. TypeScript preserves it.
 - `build` script becomes `tsc -p tsconfig.build.json && chmod +x dist/index.js`.
 
@@ -133,10 +133,10 @@ Existing HTTP/SSE tests cover `serve` mode unchanged.
 
 ## Verification
 
-1. `pnpm --filter wally typecheck`
-2. `pnpm --filter wally lint`
-3. `pnpm --filter wally test`
-4. `pnpm --filter wally build` — `dist/index.js` has shebang + exec bit.
+1. `pnpm --filter configurable-agent typecheck`
+2. `pnpm --filter configurable-agent lint`
+3. `pnpm --filter configurable-agent test`
+4. `pnpm --filter configurable-agent build` — `dist/index.js` has shebang + exec bit.
 5. Manual E2E:
    ```
    echo '{"messages":[{"role":"user","content":"hi"}]}' \
@@ -147,6 +147,6 @@ Existing HTTP/SSE tests cover `serve` mode unchanged.
 
 ## Decisions
 
-- Bare `wally` prints usage and exits 2. `wally serve` required. Dockerfile CMD updated.
-- **Black-box run record.** Stdout is `{ ok, finalText, error }` — no `toolCalls`, no `steps`. Mo treats wally as a black box; per-tool visibility comes from OTEL spans, not stdout. (Revised from the original instructions, which listed `toolCalls` and `steps`.)
+- Bare `configurable-agent` prints usage and exits 2. `configurable-agent serve` required. Dockerfile CMD updated.
+- **Black-box run record.** Stdout is `{ ok, finalText, error }` — no `toolCalls`, no `steps`. Mo treats configurable-agent as a black box; per-tool visibility comes from OTEL spans, not stdout. (Revised from the original instructions, which listed `toolCalls` and `steps`.)
 - OTEL shutdown is wrapped in a try/catch so flush failures on tear-down never turn a good run into exit 2.

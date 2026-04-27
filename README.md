@@ -1,4 +1,4 @@
-# Wally
+# Configurable Agent
 
 A configurable LLM agent service. One YAML file defines the agent's system
 prompt, model, tools, and safety knobs. It exposes an HTTP endpoint that
@@ -34,7 +34,7 @@ curl -N -X POST http://localhost:3000/invoke \
 
 ## Configuration
 
-Loaded once at startup from `CONFIG_PATH` (default `/etc/wally/config.yaml`).
+Loaded once at startup from `CONFIG_PATH` (default `/etc/configurable-agent/config.yaml`).
 The process exits non-zero if the file is invalid.
 
 ```yaml
@@ -149,33 +149,33 @@ pnpm start           # node dist/index.js
 ## Docker
 
 ```bash
-docker build -t wally:latest .
+docker build -t eggai-configurable-agent:latest .
 docker run --rm \
   -e ANTHROPIC_API_KEY=... \
   -e TAVILY_API_KEY=... \
-  -v "$PWD/example.config.yaml:/etc/wally/config.yaml:ro" \
+  -v "$PWD/example.config.yaml:/etc/configurable-agent/config.yaml:ro" \
   -p 3000:3000 \
-  wally:latest
+  eggai-configurable-agent:latest
 ```
 
 ## Kubernetes
 
 Manifests in `k8s/`:
 
-- `configmap.yaml` — the agent's YAML, mounted at `/etc/wally/config.yaml`
+- `configmap.yaml` — the agent's YAML, mounted at `/etc/configurable-agent/config.yaml`
 - `secret.example.yaml` — template for provider keys consumed via `envFrom`
 - `deployment.yaml` — hardened pod spec (non-root, read-only rootfs, dropped caps)
 - `service.yaml` — ClusterIP on port 80
 
 ```bash
-kubectl create namespace wally
-kubectl -n wally create secret generic wally-provider-keys \
+kubectl create namespace configurable-agent
+kubectl -n configurable-agent create secret generic configurable-agent-provider-keys \
   --from-literal=ANTHROPIC_API_KEY=... \
   --from-literal=TAVILY_API_KEY=...
-kubectl -n wally apply -f k8s/
+kubectl -n configurable-agent apply -f k8s/
 ```
 
-Real deployments should not commit keys — populate `wally-provider-keys` via
+Real deployments should not commit keys — populate `configurable-agent-provider-keys` via
 Vault Secrets Operator, External Secrets Operator, Vault Agent Injector, or
 another secret-sync mechanism. The pod stays Vault-agnostic and only reads
 env vars.

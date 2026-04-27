@@ -1,10 +1,10 @@
 {
-  "name": "wally",
+  "name": "configurable-agent",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "wally": "dist/index.js"
+    "configurable-agent": "dist/index.js"
   },
   "files": ["dist"],
   "engines": {

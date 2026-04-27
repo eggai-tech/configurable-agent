@@ -12,7 +12,8 @@ export function startTracing(): void {
   }
   sdk = new NodeSDK({
     resource: new Resource({
-      [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'wally',
+      [SemanticResourceAttributes.SERVICE_NAME]:
+        process.env.OTEL_SERVICE_NAME ?? 'configurable-agent',
       [SemanticResourceAttributes.SERVICE_VERSION]: process.env.OTEL_SERVICE_VERSION ?? '0.1.0',
     }),
     traceExporter: new OTLPTraceExporter(),

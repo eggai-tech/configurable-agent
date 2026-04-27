@@ -2,7 +2,7 @@
 
 ## Context
 
-Today each tool in Wally returns its own ad-hoc shape (`BashRunResult`, `BashDenyResult`, `HttpResult`, raw websearch/todowrite objects), with a parallel `TruncatedToolOutput` wrapper applied only when outputs are too large. Clients of the SSE stream (and the model) have to special-case every tool.
+Today each tool in Configurable Agent returns its own ad-hoc shape (`BashRunResult`, `BashDenyResult`, `HttpResult`, raw websearch/todowrite objects), with a parallel `TruncatedToolOutput` wrapper applied only when outputs are too large. Clients of the SSE stream (and the model) have to special-case every tool.
 
 This spec introduces a single envelope `{ label, status, content, return_code, args, duration_ms }` so a UI can render any tool uniformly. The bash tool also merges stderr into stdout so the model/UI sees one interleaved stream, like a terminal.
 
@@ -22,7 +22,7 @@ This spec introduces a single envelope `{ label, status, content, return_code, a
 
 ## Envelope type
 
-New file: `wally/src/agent/tools/result.ts`
+New file: `configurable-agent/src/agent/tools/result.ts`
 
 ```ts
 export type ToolStatus = 'succeeded' | 'error' | 'denied' | 'approval_required';
@@ -50,7 +50,7 @@ This keeps each tool focused on its own logic; the wrapper owns the envelope.
 
 ## Per-tool changes
 
-### `wally/src/agent/tools/bash.ts`
+### `configurable-agent/src/agent/tools/bash.ts`
 
 - Delete `BashRunResult` and `BashDenyResult` (replaced by `ToolResult`).
 - `gateCommand` now returns either a `ToolResult` (denied / approval_required) or `null` (proceed).
@@ -64,7 +64,7 @@ This keeps each tool focused on its own logic; the wrapper owns the envelope.
   - Exception: `timedOut` still forces `return_code: 124` (matches today).
 - Labeler: `label: args.command`.
 
-### `wally/src/agent/tools/http.ts`
+### `configurable-agent/src/agent/tools/http.ts`
 
 - Delete `HttpResult`.
 - Return `{ status: 'succeeded', content: \`${httpStatus} ${statusText}\n${body}\`, return_code: httpStatus }` on a completed fetch (any HTTP status).
@@ -72,7 +72,7 @@ This keeps each tool focused on its own logic; the wrapper owns the envelope.
 - Headers and `truncated` are dropped from the envelope.
 - Labeler: `fetch ${args.method ?? 'GET'} ${args.url}`.
 
-### `wally/src/agent/tools/websearch.ts`
+### `configurable-agent/src/agent/tools/websearch.ts`
 
 - Format `content` as:
   ```
@@ -89,7 +89,7 @@ This keeps each tool focused on its own logic; the wrapper owns the envelope.
 - Thrown errors → `status: 'error'`.
 - Labeler: `search "${args.query}"`.
 
-### `wally/src/agent/tools/todowrite.ts`
+### `configurable-agent/src/agent/tools/todowrite.ts`
 
 - `content: JSON.stringify({ todos, count }, null, 2)` (raw JSON).
 - `return_code: null`, `status: 'succeeded'`.
@@ -97,7 +97,7 @@ This keeps each tool focused on its own logic; the wrapper owns the envelope.
 
 ## Summarization refactor
 
-`wally/src/agent/safety/tool-summary.ts`:
+`configurable-agent/src/agent/safety/tool-summary.ts`:
 - `maybeSummarizeToolOutput` now accepts an already-built `ToolResult` and returns a possibly-rewritten `ToolResult`.
 - When `content`'s token count exceeds `triggerTokens`, it replaces `content` with a formatted block:
   ```
@@ -113,7 +113,7 @@ This keeps each tool focused on its own logic; the wrapper owns the envelope.
 - Delete `TruncatedToolOutput` interface and the `emit({ type: 'tool_result_truncated', ... })` call.
 - Wiring: `wrapToolExecute` calls `maybeSummarizeToolOutput` AFTER the partial envelope is assembled but BEFORE return, so every tool benefits uniformly.
 
-## Event schema (`wally/src/agent/events.ts`)
+## Event schema (`configurable-agent/src/agent/events.ts`)
 
 - Rename `tool_stdout_chunk` → `tool_output_chunk`; drop the `stream` field. Shape: `{ type: 'tool_output_chunk'; id: string; text: string; seq: number }`.
 - `tool_stream_end`: keep as-is (bash-only streaming metadata, distinct from the envelope's terminal fields).
@@ -121,7 +121,7 @@ This keeps each tool focused on its own logic; the wrapper owns the envelope.
 - Delete the `tool_result_truncated` variant.
 - `tool_approval_requested` unchanged.
 
-## Loop / approval flow (`wally/src/agent/loop.ts`)
+## Loop / approval flow (`configurable-agent/src/agent/loop.ts`)
 
 Today `isPendingApprovalOutput` filters pending-approval results out of the SSE `tool_result` event but the AI SDK still inserts that tool output into the next model turn. New behavior:
 
@@ -136,7 +136,7 @@ Verify the AI SDK's `generateText`/`streamText` behavior: if a tool `execute()` 
 
 ## Tests
 
-All tests in `wally/tests/`:
+All tests in `configurable-agent/tests/`:
 
 - `bash-policy.test.ts` — no changes (classifier untouched).
 - Any bash execute test needs updating to assert on the envelope shape (not `BashRunResult`).
@@ -147,21 +147,21 @@ All tests in `wally/tests/`:
 
 ## Critical files (touch list)
 
-- `wally/src/agent/tools/result.ts` — NEW
-- `wally/src/agent/tools/bash.ts`
-- `wally/src/agent/tools/http.ts`
-- `wally/src/agent/tools/websearch.ts`
-- `wally/src/agent/tools/todowrite.ts`
-- `wally/src/agent/tools/index.ts` — wire the new `wrapToolExecute` helper into tool construction
-- `wally/src/agent/safety/tool-summary.ts`
-- `wally/src/agent/events.ts`
-- `wally/src/agent/loop.ts` (approval halt)
-- `wally/src/api/request.ts` / `wally/src/api/server.ts` — verify no hardcoded assumptions about old shapes
-- `wally/tests/bash-policy.test.ts`
-- `wally/tests/tool-summary.test.ts`
-- `wally/tests/loop.test.ts`
-- `wally/tests/sse.test.ts`
-- `wally/tests/compaction.test.ts`
+- `configurable-agent/src/agent/tools/result.ts` — NEW
+- `configurable-agent/src/agent/tools/bash.ts`
+- `configurable-agent/src/agent/tools/http.ts`
+- `configurable-agent/src/agent/tools/websearch.ts`
+- `configurable-agent/src/agent/tools/todowrite.ts`
+- `configurable-agent/src/agent/tools/index.ts` — wire the new `wrapToolExecute` helper into tool construction
+- `configurable-agent/src/agent/safety/tool-summary.ts`
+- `configurable-agent/src/agent/events.ts`
+- `configurable-agent/src/agent/loop.ts` (approval halt)
+- `configurable-agent/src/api/request.ts` / `configurable-agent/src/api/server.ts` — verify no hardcoded assumptions about old shapes
+- `configurable-agent/tests/bash-policy.test.ts`
+- `configurable-agent/tests/tool-summary.test.ts`
+- `configurable-agent/tests/loop.test.ts`
+- `configurable-agent/tests/sse.test.ts`
+- `configurable-agent/tests/compaction.test.ts`
 
 ## Verification
 

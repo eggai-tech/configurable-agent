@@ -8,7 +8,7 @@ describe('loadConfig', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'wally-cfg-'));
+    dir = mkdtempSync(join(tmpdir(), 'configurable-agent-cfg-'));
   });
 
   afterEach(() => {

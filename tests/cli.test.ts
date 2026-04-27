@@ -101,11 +101,11 @@ function lastJsonLine(stdout: string): unknown {
   return JSON.parse(last);
 }
 
-describe('wally run CLI', () => {
+describe('configurable-agent run CLI', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'wally-cli-'));
+    dir = mkdtempSync(join(tmpdir(), 'configurable-agent-cli-'));
   });
 
   afterEach(() => {
@@ -146,7 +146,7 @@ describe('wally run CLI', () => {
     });
 
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain('wally run --config');
+    expect(r.stderr).toContain('configurable-agent run --config');
     expect(r.stdout).toBe('');
   });
 

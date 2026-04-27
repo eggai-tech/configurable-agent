@@ -1,4 +1,4 @@
-# Wally — configurable agentic service
+# Configurable Agent — configurable agentic service
 
 ## Context
 
@@ -18,7 +18,7 @@ The repo currently holds only `instructions.md`. We're building a greenfield Nod
 
 ## Configuration (YAML)
 
-Loaded once at startup from `CONFIG_PATH` (default `/etc/wally/config.yaml`). Mounted from a `ConfigMap`. Parsed with `yaml` and validated with Zod. If invalid, the process exits non‑zero before the server binds.
+Loaded once at startup from `CONFIG_PATH` (default `/etc/configurable-agent/config.yaml`). Mounted from a `ConfigMap`. Parsed with `yaml` and validated with Zod. If invalid, the process exits non‑zero before the server binds.
 
 ```yaml
 systemPrompt: |
@@ -115,7 +115,7 @@ src/
     logger.ts                    # pino
     tracing.ts                   # OTel SDK init
 k8s/
-  configmap.yaml                 # example agent YAML mounted at /etc/wally/config.yaml
+  configmap.yaml                 # example agent YAML mounted at /etc/configurable-agent/config.yaml
   deployment.yaml                # pod spec; envFrom: secretRef for provider keys
   service.yaml
   secret.example.yaml            # template only; real secrets come from Vault/VSO
@@ -154,5 +154,5 @@ tests/
    ```
    and confirm the event sequence (`reasoning*`, `tool_call`, `tool_result`, `content_delta*`, `final`). Also confirm aborting the curl aborts the loop server-side.
 4. **Structured output**: toggle `output.structured: true` with a schema in `example.config.yaml`; confirm `final.structured` validates against the schema.
-5. **Container**: `docker build -t wally .` then `docker run -e ANTHROPIC_API_KEY=… -e TAVILY_API_KEY=… -v $PWD/example.config.yaml:/etc/wally/config.yaml -p 3000:3000 wally` and repeat the curl.
+5. **Container**: `docker build -t eggai-configurable-agent .` then `docker run -e ANTHROPIC_API_KEY=… -e TAVILY_API_KEY=… -v $PWD/example.config.yaml:/etc/configurable-agent/config.yaml -p 3000:3000 eggai-configurable-agent` and repeat the curl.
 6. **Kubernetes** (kind/minikube): `kubectl apply -f k8s/`, wait for ready, port-forward, curl, confirm logs/traces.
