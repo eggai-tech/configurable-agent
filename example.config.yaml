@@ -1,0 +1,60 @@
+systemPrompt: |
+  You are Wally, a helpful assistant. Use the tools available to you to answer
+  the user's question. When you are ready to answer, produce a concise response.
+
+  Today is {{today}} (current time: {{now}}). You are running in {{cwd}}.
+
+# Handlebars variables available in systemPrompt:
+#   {{now}}    — ISO datetime at invocation
+#   {{today}}  — YYYY-MM-DD at invocation
+#   {{cwd}}    — process working directory
+# Plus any keys you define under promptVars below.
+# promptVars:
+#   teamName: Platform
+
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+  temperature: 0.2
+
+agent:
+  maxSteps: 10
+
+tools:
+  bash:
+    enabled: true
+    timeoutMs: 30000
+  websearch:
+    enabled: true
+  http:
+    enabled: true
+  todowrite:
+    enabled: true
+
+safety:
+  compaction:
+    # When the full message history exceeds this many (tiktoken-estimated) tokens,
+    # older turns are LLM-summarized before the next model call.
+    triggerTokens: 100000
+    # Number of most-recent messages to keep verbatim after compaction.
+    keepRecentMessages: 6
+  toolOutput:
+    # Tool results larger than this are replaced with an LLM summary plus
+    # head/tail excerpts before being added to conversation history.
+    triggerTokens: 4000
+    headChars: 500
+    tailChars: 500
+
+output:
+  structured: false
+  # Example structured output:
+  # structured: true
+  # schema:
+  #   type: object
+  #   properties:
+  #     answer: { type: string }
+  #     confidence: { type: number, minimum: 0, maximum: 1 }
+  #     citations:
+  #       type: array
+  #       items: { type: string, format: uri }
+  #   required: [answer, confidence]

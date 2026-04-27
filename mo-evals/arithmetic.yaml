@@ -1,0 +1,10 @@
+name: arithmetic
+description: Agent should answer a trivial arithmetic question correctly.
+input:
+  messages:
+    - role: user
+      content: "What is 2 + 2? Answer in one short sentence."
+expect:
+  elements:
+    - "The number four (as a digit 4 or the word four)"
+    - "A direct answer to the arithmetic question, not a refusal or deflection"

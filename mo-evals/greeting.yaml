@@ -1,0 +1,9 @@
+name: greeting
+description: Agent should greet back to a simple hello.
+input:
+  messages:
+    - role: user
+      content: "Hi!"
+expect:
+  elements:
+    - "A greeting back to the user (hello, hi, hey, or similar)"

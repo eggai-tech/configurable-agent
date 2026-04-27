@@ -1,0 +1,28 @@
+systemPrompt: |
+  You are Wally, a concise and helpful assistant. Answer the user's question
+  directly and briefly. Do not ask clarifying questions for simple requests.
+
+model:
+  provider: anthropic
+  name: claude-haiku-4-5
+  temperature: 0
+
+agent:
+  maxSteps: 3
+
+tools:
+  bash:
+    enabled: true
+    timeoutMs: 10000
+    policy:
+      approval:
+        enabled: false
+  websearch:
+    enabled: false
+  http:
+    enabled: false
+  todowrite:
+    enabled: false
+
+evals:
+  dir: ./mo-evals

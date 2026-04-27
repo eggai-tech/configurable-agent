@@ -1,0 +1,192 @@
+import { type SpanContext, context, trace } from '@opentelemetry/api';
+import type { LanguageModel, ModelMessage } from 'ai';
+import { type AgentEvent, runAgent } from '../agent/loop.js';
+import { InvokeRequestSchema } from '../api/request.js';
+import type { ApprovalDecision } from '../api/request.js';
+import { type RunRecord, parseTraceparent, readAllStdin, writeRunRecord } from '../cli/stdio.js';
+import { ConfigError, loadConfig } from '../config/load.js';
+import type { AgentConfig } from '../config/schema.js';
+import { shutdownTracing, startTracing } from '../observability/tracing.js';
+
+const USAGE = `Usage: wally run --config <path-to-config.yaml>
+
+Reads a JSON conversation from stdin. Writes a single-line JSON run record on
+the last line of stdout. Diagnostic logs go to stderr.
+
+Env:
+  TRACEPARENT                    W3C trace parent — spans nest under this context.
+  OTEL_EXPORTER_OTLP_ENDPOINT    where to send spans.
+`;
+
+export interface RunCliOptions {
+  argv: string[];
+  stdin: NodeJS.ReadableStream;
+  stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
+  env: NodeJS.ProcessEnv;
+  modelOverride?: LanguageModel;
+}
+
+export async function runCli(opts: RunCliOptions): Promise<number> {
+  const configPath = parseConfigFlag(opts.argv);
+  if (!configPath) {
+    opts.stderr.write(USAGE);
+    return 2;
+  }
+
+  let stdinRaw: string;
+  try {
+    stdinRaw = await readAllStdin(opts.stdin);
+  } catch (err) {
+    opts.stderr.write(`failed to read stdin: ${errMsg(err)}\n`);
+    return 2;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(stdinRaw);
+  } catch (err) {
+    opts.stderr.write(`stdin is not valid JSON: ${errMsg(err)}\n`);
+    return 2;
+  }
+
+  const validated = InvokeRequestSchema.safeParse(parsedBody);
+  if (!validated.success) {
+    opts.stderr.write(
+      `stdin failed schema validation: ${JSON.stringify(validated.error.format())}\n`,
+    );
+    return 2;
+  }
+
+  let config: AgentConfig;
+  try {
+    config = loadConfig(configPath);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      opts.stderr.write(`config error (${configPath}): ${err.message}\n`);
+    } else {
+      opts.stderr.write(`failed to load config at ${configPath}: ${errMsg(err)}\n`);
+    }
+    return 2;
+  }
+
+  startTracing();
+
+  const parentSpanCtx = parseTraceparent(opts.env.TRACEPARENT);
+
+  try {
+    const record = await executeRun(
+      config,
+      validated.data.messages as ModelMessage[],
+      validated.data.approvals,
+      validated.data.sessionAllowRules,
+      opts.modelOverride,
+      parentSpanCtx,
+    );
+    writeRunRecord(opts.stdout, record);
+    return 0;
+  } catch (err) {
+    opts.stderr.write(`wally run crashed: ${errMsg(err)}\n`);
+    return 2;
+  } finally {
+    // OTEL export is best-effort. A flush / connection failure here must never
+    // turn a successful run into a non-zero exit for Mo.
+    try {
+      await shutdownTracing();
+    } catch (err) {
+      opts.stderr.write(`warning: otel shutdown failed: ${errMsg(err)}\n`);
+    }
+  }
+}
+
+async function executeRun(
+  config: AgentConfig,
+  messages: ModelMessage[],
+  approvals: ApprovalDecision[] | undefined,
+  sessionAllowRules: string[] | undefined,
+  modelOverride: LanguageModel | undefined,
+  parentSpanCtx: SpanContext | null,
+): Promise<RunRecord> {
+  const collector = new EventCollector();
+
+  const work = () =>
+    runAgent(config, messages, (e) => collector.collect(e), undefined, {
+      approvals,
+      sessionAllowRules,
+      model: modelOverride,
+    });
+
+  const tracer = trace.getTracer('wally-cli');
+  const baseCtx = parentSpanCtx
+    ? trace.setSpanContext(context.active(), parentSpanCtx)
+    : context.active();
+
+  await context.with(baseCtx, async () => {
+    await tracer.startActiveSpan('wally.run', async (span) => {
+      try {
+        await work();
+      } finally {
+        span.end();
+      }
+    });
+  });
+
+  return collector.toRecord();
+}
+
+class EventCollector {
+  private finalText: string | undefined;
+  private errorMessage: string | undefined;
+  private approvalRequested = false;
+
+  collect(event: AgentEvent): void {
+    switch (event.type) {
+      case 'tool_approval_requested':
+        this.approvalRequested = true;
+        break;
+      case 'final':
+        this.finalText = event.content;
+        break;
+      case 'error':
+        if (this.errorMessage === undefined) this.errorMessage = event.message;
+        break;
+      default:
+        break;
+    }
+  }
+
+  toRecord(): RunRecord {
+    const finalSeen = this.finalText !== undefined;
+    const errorSeen = this.errorMessage !== undefined;
+
+    let error: string | null = this.errorMessage ?? null;
+    if (!finalSeen && !errorSeen && this.approvalRequested) {
+      error = 'run halted waiting for tool approval (CLI is non-interactive)';
+    }
+
+    return {
+      ok: finalSeen && !errorSeen,
+      finalText: this.finalText ?? '',
+      error,
+    };
+  }
+}
+
+function parseConfigFlag(argv: string[]): string | null {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--config') return argv[i + 1] ?? null;
+    if (a?.startsWith('--config=')) return a.slice('--config='.length);
+  }
+  return null;
+}
+
+function errMsg(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}

@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wally-config
+  labels:
+    app.kubernetes.io/name: wally
+data:
+  config.yaml: |
+    systemPrompt: |
+      You are Wally, a helpful assistant running on a local ollama model.
+      Be concise. Use the tools available to you when needed.
+
+    model:
+      provider: ollama
+      name: gemma4:31b
+      baseUrl: http://host.docker.internal:11434/v1
+      temperature: 0.2
+
+    agent:
+      maxSteps: 6
+
+    tools:
+      bash:
+        enabled: true
+        timeoutMs: 30000
+      websearch:
+        enabled: false
+
+    safety:
+      compaction:
+        triggerTokens: 20000
+        keepRecentMessages: 6
+      toolOutput:
+        triggerTokens: 2000
+        headChars: 400
+        tailChars: 400
+
+    output:
+      structured: false

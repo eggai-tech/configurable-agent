@@ -1,0 +1,9 @@
+name: capital
+description: Agent should know a basic world-knowledge fact.
+input:
+  messages:
+    - role: user
+      content: "What is the capital of France? One word answer."
+expect:
+  elements:
+    - "The word Paris"

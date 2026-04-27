@@ -1,0 +1,10 @@
+name: list-cwd
+description: Agent should use its bash tool to list the current working directory.
+input:
+  messages:
+    - role: user
+      content: "Run `ls` in the current working directory and tell me what files or folders you see. List at least three names from the output."
+expect:
+  elements:
+    - "The response lists at least three file or directory names"
+    - "The response does not refuse or claim it cannot execute shell commands"
