@@ -28,5 +28,5 @@ Commit frequently while working — don't let a session end with one giant diff.
 
 - After each logically complete step (new feature area, bug fix, refactor pass, spec file write-up), make a commit. Don't wait for the whole task to finish.
 - Scope each commit tightly to the files related to that step. Do NOT sweep in unrelated pre-existing modifications that happened to be in the working tree — stage files by name, never `git add -A` / `git add .`.
-- Follow the existing message style: `<component>: <short imperative subject>`, with a 1–3 sentence body explaining the *why*. Include the `Co-Authored-By` trailer on commits you author.
+- Follow the existing message style: `<component>: <short imperative subject>`, with a 1–3 sentence body explaining the *why*. Do NOT add a `Co-Authored-By` trailer — Claude is a tool, not a co-author, and crediting it as one is misleading.
 - Commit automatically as you finish each logically complete step — don't wait for the user to ask. The user wants a clean commit trail without having to prompt for it each time. Still stage files by name (never `git add -A`), still split into small logical commits, still leave unrelated pre-existing working-tree modifications alone, and still never push unless asked.
