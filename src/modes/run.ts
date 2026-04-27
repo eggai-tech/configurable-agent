@@ -1,6 +1,7 @@
 import { type SpanContext, context, trace } from '@opentelemetry/api';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { type AgentEvent, runAgent } from '../agent/loop.js';
+import { buildMcpRegistry } from '../agent/tools/mcp.js';
 import { InvokeRequestSchema } from '../api/request.js';
 import { type RunRecord, parseTraceparent, readAllStdin, writeRunRecord } from '../cli/stdio.js';
 import { ConfigError, loadConfig } from '../config/load.js';
@@ -104,9 +105,14 @@ async function executeRun(
 ): Promise<RunRecord> {
   const collector = new EventCollector();
 
+  // Build MCP tools once for the run; one-shot, so the registry is torn down
+  // before the process exits.
+  const registry = await buildMcpRegistry(config);
+
   const work = () =>
     runAgent(config, messages, (e) => collector.collect(e), undefined, {
       model: modelOverride,
+      tools: registry.tools,
     });
 
   const tracer = trace.getTracer('configurable-agent-cli');
@@ -114,15 +120,19 @@ async function executeRun(
     ? trace.setSpanContext(context.active(), parentSpanCtx)
     : context.active();
 
-  await context.with(baseCtx, async () => {
-    await tracer.startActiveSpan('configurable-agent.run', async (span) => {
-      try {
-        await work();
-      } finally {
-        span.end();
-      }
+  try {
+    await context.with(baseCtx, async () => {
+      await tracer.startActiveSpan('configurable-agent.run', async (span) => {
+        try {
+          await work();
+        } finally {
+          span.end();
+        }
+      });
     });
-  });
+  } finally {
+    await registry.cleanup();
+  }
 
   return collector.toRecord();
 }

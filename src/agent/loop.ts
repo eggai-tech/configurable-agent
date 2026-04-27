@@ -2,6 +2,7 @@ import {
   type FinishReason,
   type LanguageModel,
   type ModelMessage,
+  type ToolSet,
   generateObject,
   generateText,
   jsonSchema,
@@ -15,12 +16,18 @@ import { buildModel } from './model.js';
 import { renderSystemPrompt } from './prompt.js';
 import { maybeCompactMessages } from './safety/compaction.js';
 
-import { buildMcpTools } from './tools/mcp.js';
+import { buildMcpRegistry, wrapToolsWithSummarization } from './tools/mcp.js';
 
 export type { AgentEmitter, AgentEvent } from './events.js';
 
 export interface RunAgentOptions {
   model?: LanguageModel;
+  /**
+   * Pre-built, validated MCP tool map. When provided, the loop reuses it
+   * instead of running discovery for the request — used by the HTTP server,
+   * which builds the registry once at startup.
+   */
+  tools?: ToolSet;
 }
 
 export async function runAgent(
@@ -44,7 +51,16 @@ export async function runAgent(
     return text;
   };
 
-  const { tools, cleanup } = await buildMcpTools(config);
+  let rawTools: ToolSet;
+  let cleanup: () => Promise<void> = async () => {};
+  if (options.tools) {
+    rawTools = options.tools;
+  } else {
+    const registry = await buildMcpRegistry(config);
+    rawTools = registry.tools;
+    cleanup = registry.cleanup;
+  }
+  const tools = wrapToolsWithSummarization(rawTools, { config, summarize });
 
   try {
     let finishReason: FinishReason | 'unknown' = 'unknown';

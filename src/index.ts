@@ -10,8 +10,8 @@ program.name('configurable-agent').version('0.1.0', '-v, --version');
 program
   .command('serve')
   .description('Start the HTTP server')
-  .action(() => {
-    runServe();
+  .action(async () => {
+    await runServe();
   });
 
 program

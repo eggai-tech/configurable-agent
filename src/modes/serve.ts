@@ -1,10 +1,11 @@
 import { serve } from '@hono/node-server';
+import { buildMcpRegistry } from '../agent/tools/mcp.js';
 import { buildServer } from '../api/server.js';
 import { loadConfig } from '../config/load.js';
 import { logger } from '../observability/logger.js';
 import { shutdownTracing, startTracing } from '../observability/tracing.js';
 
-export function runServe(): void {
+export async function runServe(): Promise<void> {
   startTracing();
 
   const configPath = process.env.CONFIG_PATH ?? '/etc/configurable-agent/config.yaml';
@@ -16,7 +17,23 @@ export function runServe(): void {
     'config loaded',
   );
 
-  const app = buildServer(config);
+  // Build the MCP registry BEFORE we start serving traffic. If discovery fails
+  // or two servers expose the same tool name, the process exits non-zero — we
+  // never accept a request against a half-initialized tool layer.
+  let registry: Awaited<ReturnType<typeof buildMcpRegistry>>;
+  try {
+    registry = await buildMcpRegistry(config);
+  } catch (err) {
+    logger.error({ err }, 'mcp registry initialization failed');
+    await shutdownTracing();
+    process.exit(1);
+  }
+  logger.info(
+    { tools: Object.keys(registry.tools).length, servers: config.mcpTools.length },
+    'mcp registry ready',
+  );
+
+  const app = buildServer(config, { tools: registry.tools });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
     logger.info({ port: info.port }, 'configurable-agent listening');
@@ -25,6 +42,7 @@ export function runServe(): void {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down');
     server.close();
+    await registry.cleanup();
     await shutdownTracing();
     process.exit(0);
   };

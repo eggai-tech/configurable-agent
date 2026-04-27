@@ -1,4 +1,4 @@
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, ToolSet } from 'ai';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { runAgent } from '../agent/loop.js';
@@ -8,8 +8,17 @@ import { logger } from '../observability/logger.js';
 import { InvokeRequestSchema } from './request.js';
 import { writeAgentEvent } from './sse.js';
 
-export function buildServer(config: AgentConfig) {
+export interface BuildServerOptions {
+  /**
+   * MCP tool map prebuilt at startup. Reused across all requests so MCP
+   * discovery does not run per /invoke.
+   */
+  tools: ToolSet;
+}
+
+export function buildServer(config: AgentConfig, options: BuildServerOptions) {
   const app = new Hono();
+  const { tools } = options;
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
@@ -60,6 +69,7 @@ export function buildServer(config: AgentConfig) {
             await writeAgentEvent(stream, event);
           },
           abortController.signal,
+          { tools },
         );
       } catch (err) {
         logger.error({ err }, 'agent run failed');
