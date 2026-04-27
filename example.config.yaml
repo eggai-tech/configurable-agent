@@ -30,8 +30,14 @@ agent:
 #
 # Each entry in mcpTools is an MCP server. Two transports are supported:
 #
-#   transport: stdio   — configurable-agent spawns the server as a child process per invocation
-#   transport: http    — configurable-agent connects to a remote MCP server over HTTP
+#   transport: stdio   — configurable-agent spawns the server as a child process at startup
+#   transport: http    — configurable-agent connects to a remote MCP server at startup
+#
+# All MCP servers are connected and their tool catalogs validated BEFORE the
+# HTTP server begins serving traffic. If any server fails to start, fails
+# discovery, or two servers expose the same tool name, the process exits
+# non-zero. Clients are reused across all /invoke requests, not rebuilt per
+# request.
 
 mcpTools: []
 

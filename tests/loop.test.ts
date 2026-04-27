@@ -216,10 +216,7 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
       ping: fakeMcpTool({ content: [{ type: 'text', text: 'pong' }] }),
     };
 
-    const { model } = multiStepModel([
-      toolCallStream('ping', {}),
-      textStream('ok'),
-    ]);
+    const { model } = multiStepModel([toolCallStream('ping', {}), textStream('ok')]);
 
     const events: AgentEvent[] = [];
     await runAgent(
@@ -253,13 +250,10 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
 
     for (let i = 0; i < 2; i++) {
       const { model } = multiStepModel([toolCallStream('shared', { i }), textStream(`done-${i}`)]);
-      await runAgent(
-        baseConfig(),
-        [{ role: 'user', content: `req ${i}` }],
-        () => {},
-        undefined,
-        { model, tools: tools as never },
-      );
+      await runAgent(baseConfig(), [{ role: 'user', content: `req ${i}` }], () => {}, undefined, {
+        model,
+        tools: tools as never,
+      });
     }
 
     // Same tool object was used both times — execute fires once per request.

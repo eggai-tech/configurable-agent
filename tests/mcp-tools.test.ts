@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  buildMcpRegistry,
-  wrapToolsWithSummarization,
-} from '../src/agent/tools/mcp.js';
+import { buildMcpRegistry, wrapToolsWithSummarization } from '../src/agent/tools/mcp.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 // Mock the AI SDK MCP modules so tests never spawn child processes or open
@@ -29,11 +26,13 @@ interface FakeClient {
   closed: boolean;
 }
 
-function fakeClient(opts: {
-  toolsResult?: Record<string, unknown>;
-  toolsThrows?: Error;
-  closeThrows?: Error;
-} = {}): FakeClient {
+function fakeClient(
+  opts: {
+    toolsResult?: Record<string, unknown>;
+    toolsThrows?: Error;
+    closeThrows?: Error;
+  } = {},
+): FakeClient {
   // State lives on the returned object directly so tests can inspect mutations.
   const c: FakeClient = {
     toolsCalls: 0,
@@ -99,9 +98,7 @@ describe('buildMcpRegistry', () => {
 
     const reg = await buildMcpRegistry(
       baseConfig({
-        mcpTools: [
-          { name: 'svc', transport: 'stdio', command: 'svc-mcp', args: [], env: {} },
-        ],
+        mcpTools: [{ name: 'svc', transport: 'stdio', command: 'svc-mcp', args: [], env: {} }],
       }),
     );
 
@@ -143,7 +140,9 @@ describe('buildMcpRegistry', () => {
   it('fails startup when two servers expose the same tool name', async () => {
     const a = fakeClient({ toolsResult: { shared: fakeTool('shared-a') } });
     const b = fakeClient({ toolsResult: { shared: fakeTool('shared-b') } });
-    vi.mocked(createClient).mockResolvedValueOnce(a as never).mockResolvedValueOnce(b as never);
+    vi.mocked(createClient)
+      .mockResolvedValueOnce(a as never)
+      .mockResolvedValueOnce(b as never);
 
     await expect(
       buildMcpRegistry(
@@ -169,9 +168,7 @@ describe('buildMcpRegistry', () => {
     await expect(
       buildMcpRegistry(
         baseConfig({
-          mcpTools: [
-            { name: 'broken', transport: 'stdio', command: 'no-such', args: [], env: {} },
-          ],
+          mcpTools: [{ name: 'broken', transport: 'stdio', command: 'no-such', args: [], env: {} }],
         }),
       ),
     ).rejects.toThrow(/spawn ENOENT/);
@@ -207,7 +204,9 @@ describe('buildMcpRegistry', () => {
       closeThrows: new Error('close-failed'),
     });
     const b = fakeClient({ toolsResult: { tb: fakeTool('tb') } });
-    vi.mocked(createClient).mockResolvedValueOnce(a as never).mockResolvedValueOnce(b as never);
+    vi.mocked(createClient)
+      .mockResolvedValueOnce(a as never)
+      .mockResolvedValueOnce(b as never);
 
     const reg = await buildMcpRegistry(
       baseConfig({
@@ -240,8 +239,9 @@ describe('wrapToolsWithSummarization', () => {
       summarize,
     });
 
-    const out = (await (wrapped.echo as { execute: (i: unknown, o: unknown) => Promise<unknown> })
-      .execute({ q: 1 }, { toolCallId: 'x', messages: [] })) as Record<string, unknown>;
+    const out = (await (
+      wrapped.echo as { execute: (i: unknown, o: unknown) => Promise<unknown> }
+    ).execute({ q: 1 }, { toolCallId: 'x', messages: [] })) as Record<string, unknown>;
 
     expect(summarize).not.toHaveBeenCalled();
     expect(out.label).toBe('echo');
@@ -266,8 +266,9 @@ describe('wrapToolsWithSummarization', () => {
       summarize,
     });
 
-    const out = (await (wrapped.big as { execute: (i: unknown, o: unknown) => Promise<unknown> })
-      .execute({}, { toolCallId: 'x', messages: [] })) as {
+    const out = (await (
+      wrapped.big as { execute: (i: unknown, o: unknown) => Promise<unknown> }
+    ).execute({}, { toolCallId: 'x', messages: [] })) as {
       truncated?: boolean;
       content: string;
     };
@@ -296,8 +297,9 @@ describe('wrapToolsWithSummarization', () => {
       summarize,
     });
 
-    const out = (await (wrapped.fail as { execute: (i: unknown, o: unknown) => Promise<unknown> })
-      .execute({}, { toolCallId: 'x', messages: [] })) as { status: string };
+    const out = (await (
+      wrapped.fail as { execute: (i: unknown, o: unknown) => Promise<unknown> }
+    ).execute({}, { toolCallId: 'x', messages: [] })) as { status: string };
 
     expect(out.status).toBe('error');
   });

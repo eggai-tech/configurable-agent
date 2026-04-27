@@ -51,14 +51,18 @@ model:
 agent:
   maxSteps: 10                  # hard cap on the tool-use loop
 
-tools:
-  bash:
-    enabled: true
-    timeoutMs: 30000
-    maxBufferBytes: 1048576
-  websearch:                    # Tavily
-    enabled: true
-    maxResults: 5
+mcpTools:                       # external MCP servers, none bundled
+  - name: accounts
+    transport: stdio
+    command: accounts-mcp
+    args: []
+    env:
+      ACCOUNTS_URL: http://accounts:8080
+  # - name: files
+  #   transport: http
+  #   url: https://files.internal/mcp
+  #   headers:
+  #     X-Tenant: acme
 
 safety:
   compaction:                   # before each LLM call
@@ -87,7 +91,7 @@ output:
 | Route          | Method | Purpose |
 | -------------- | ------ | ------- |
 | `/health`      | GET    | Liveness — always 200 once the process is up. |
-| `/ready`       | GET    | Readiness — 200 when the config is loaded and required provider keys are present. |
+| `/ready`       | GET    | Readiness — 200 when the config is loaded and required provider keys are present. The MCP tool registry is validated at startup, so if discovery or a tool-name conflict fails, the process exits non-zero before this endpoint is ever reachable. |
 | `/invoke`      | POST   | Run the agent and stream events via SSE. |
 
 ### Request
@@ -102,16 +106,32 @@ stripped and replaced with the configured `systemPrompt`.
 ### SSE event taxonomy
 
 ```
-event: reasoning                data: { text }
-event: content_delta            data: { text }
-event: tool_call                data: { id, name, args }
-event: tool_result              data: { id, output?, error? }
-event: tool_result_truncated    data: { id, originalTokens, summaryTokens, strategy }
-event: compaction_start         data: { before: { tokens, messages } }
-event: compaction_finished      data: { before, after, droppedCount }
-event: final                    data: { content, structured?, stopReason, steps, truncated }
-event: error                    data: { code, message, details? }
+event: reasoning          data: { text }
+event: content_delta      data: { text }
+event: tool_call          data: { id, name, args }
+event: tool_result        data: { id, output: ToolResult }
+event: compaction_start   data: { before: { tokens, messages } }
+event: compaction_finished data: { before, after, droppedCount }
+event: final              data: { content, structured?, stopReason, steps, truncated }
+event: error              data: { code, message, details? }
 ```
+
+The `tool_result.output` payload is a `ToolResult` envelope:
+
+```ts
+{
+  label: string,
+  status: 'succeeded' | 'error' | 'denied' | 'approval_required',
+  content: string,         // post-summarization for oversized results
+  return_code: number | null,
+  args: unknown,
+  duration_ms: number,
+  truncated?: boolean,     // true when content is the summary + head/tail
+}
+```
+
+Truncation is signalled in-band via `output.truncated: true`; there is no
+separate `tool_result_truncated` event.
 
 Each step is a single LLM call. Parallel tool calls within one step are
 supported and emit concurrent `tool_call` / `tool_result` pairs. Closing
@@ -129,7 +149,8 @@ the stream closes.
 | Feature | Trigger | Action | Event(s) |
 |---|---|---|---|
 | **Conversation compaction** | `countMessagesTokens(messages) > safety.compaction.triggerTokens` | LLM-summarize earlier turns; keep `keepRecentMessages` verbatim | `compaction_start`, `compaction_finished` |
-| **Tool output summarization** | A tool returns output whose token count exceeds `safety.toolOutput.triggerTokens` | Replace with `{ summary, headExcerpt, tailExcerpt, originalTokens, truncated: true }` before appending to history | `tool_result_truncated` |
+| **Tool output summarization** | A tool returns output whose token count exceeds `safety.toolOutput.triggerTokens` | Replace `output.content` with an LLM summary plus head/tail excerpts and set `output.truncated: true`; the summarized form, not the raw output, is what the next reasoning step sees | `tool_result` (with `output.truncated: true`) |
+| **Startup-time MCP validation** | Service start | Connect to every configured MCP server, list tools, and reject duplicate tool names. Initialization failure is fatal — the process exits non-zero before accepting traffic | — |
 
 Token counts use `gpt-tokenizer` (o200k_base). This is an approximation for
 Anthropic/Google — it generally over-counts, which is safe for threshold checks.
