@@ -26,7 +26,6 @@ function baseConfig(): AgentConfig {
       websearch: { enabled: false, maxResults: 5 },
       http: { enabled: false, timeoutMs: 30_000, maxResponseBytes: 1_048_576 },
       todowrite: { enabled: false, maxItems: 50 },
-      moRun: { enabled: false, timeoutMs: 300_000, maxBufferBytes: 4_194_304 },
     },
     output: { structured: false },
     safety: {

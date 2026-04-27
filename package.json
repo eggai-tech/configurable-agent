@@ -6,7 +6,9 @@
   "bin": {
     "wally": "dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -25,7 +27,6 @@
     "@ai-sdk/google": "^2.0.0",
     "@ai-sdk/openai": "^2.0.0",
     "@ai-sdk/openai-compatible": "^1.0.36",
-    "@eggai-tech/mo": "workspace:*",
     "@hono/node-server": "^1.14.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/auto-instrumentations-node": "^0.54.0",
@@ -36,6 +37,7 @@
     "ai": "^5.0.0",
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",
+    "commander": "^14.0.3",
     "gpt-tokenizer": "^3.4.0",
     "handlebars": "^4.7.9",
     "hono": "^4.6.0",

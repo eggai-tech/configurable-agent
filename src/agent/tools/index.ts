@@ -2,7 +2,6 @@ import type { AgentConfig } from '../../config/schema.js';
 import type { ToolSummaryRuntime } from '../safety/tool-summary.js';
 import { createBashTool } from './bash.js';
 import { createHttpTool } from './http.js';
-import { createMoRunTool } from './mo.js';
 import { type TodoStore, createTodoWriteTool } from './todowrite.js';
 import { createWebSearchTool } from './websearch.js';
 
@@ -13,7 +12,6 @@ export type ToolSet = Record<
     | typeof createWebSearchTool
     | typeof createHttpTool
     | typeof createTodoWriteTool
-    | typeof createMoRunTool
   >
 >;
 
@@ -55,15 +53,6 @@ export function buildTools(cfg: AgentConfig, ctx: ToolSummaryRuntime): ToolSet {
     tools.todowrite = createTodoWriteTool(
       todoStore,
       { maxItems: cfg.tools.todowrite.maxItems },
-      ctx,
-    );
-  }
-  if (cfg.tools.moRun.enabled) {
-    tools.mo_run = createMoRunTool(
-      {
-        timeoutMs: cfg.tools.moRun.timeoutMs,
-        maxBufferBytes: cfg.tools.moRun.maxBufferBytes,
-      },
       ctx,
     );
   }

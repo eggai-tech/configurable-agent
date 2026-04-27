@@ -86,13 +86,6 @@ export const AgentConfigSchema = z
             maxItems: z.number().int().positive().default(50),
           })
           .default({ enabled: false, maxItems: 50 }),
-        moRun: z
-          .object({
-            enabled: z.boolean().default(false),
-            timeoutMs: z.number().int().positive().default(300_000),
-            maxBufferBytes: z.number().int().positive().default(4_194_304),
-          })
-          .default({ enabled: false, timeoutMs: 300_000, maxBufferBytes: 4_194_304 }),
       })
       .default({
         bash: {
@@ -112,7 +105,6 @@ export const AgentConfigSchema = z
         websearch: { enabled: false, maxResults: 5 },
         http: { enabled: false, timeoutMs: 30_000, maxResponseBytes: 1_048_576 },
         todowrite: { enabled: false, maxItems: 50 },
-        moRun: { enabled: false, timeoutMs: 300_000, maxBufferBytes: 4_194_304 },
       }),
     output: z
       .discriminatedUnion('structured', [
