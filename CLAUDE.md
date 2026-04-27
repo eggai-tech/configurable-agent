@@ -7,20 +7,20 @@
 
 ## Specs workflow
 
-For any non-trivial task (feature, refactor, migration), persist both sides of the conversation as versioned specs in the relevant component's `docs/specs/` folder:
+For any non-trivial task (feature, refactor, migration), persist both sides of the conversation as versioned specs in this repo's `docs/specs/` folder.
 
-- `gaia/*` work → `gaia/docs/specs/`
-- `wally/*` work → `wally/docs/specs/`
-- `Mo/*` work → `mo/docs/specs/`
+This checkout stores Configurable Agent specs at the repo root:
+
+- all work in this repo → `docs/specs/`
 
 Use a shared numeric prefix to pair the two files for the same task:
 
 - `NNN_<slug>_instructions.md` — the user's original instructions (their request, verbatim or lightly cleaned).
 - `NNN_<slug>_plan.md` — the plan Claude produced (from plan mode, or synthesized from the conversation).
 
-Pick `NNN` as the next free number in that component's specs folder (zero-padded to 3 digits). The slug should be short and descriptive (e.g. `approval_flow`, `standard_tool_output`).
+Pick `NNN` as the next free number in `docs/specs/` (zero-padded to 3 digits). The slug should be short and descriptive (e.g. `approval_flow`, `standard_tool_output`).
 
-When a task spans both components, save one pair per component, using the same `NNN` and slug where possible so they're easy to correlate.
+When a task spans multiple repos or components, save one pair in each affected repo's own `docs/specs/` folder, using the same `NNN` and slug where possible so they're easy to correlate. In this repo, always write the local pair under `docs/specs/`.
 
 ## Commit cadence
 
