@@ -20,7 +20,6 @@ Providers: Anthropic, OpenAI, Google, and any OpenAI-compatible endpoint
 ```bash
 pnpm install
 export ANTHROPIC_API_KEY=...         # or OPENAI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
-export TAVILY_API_KEY=...            # only if websearch tool is enabled
 CONFIG_PATH=./example.config.yaml pnpm dev
 ```
 
@@ -51,7 +50,7 @@ model:
 agent:
   maxSteps: 10                  # hard cap on the tool-use loop
 
-mcpTools:                       # external MCP servers, none bundled
+mcpTools:                       # external MCP servers (none bundled — see Built-in tools below)
   - name: accounts
     transport: stdio
     command: accounts-mcp
@@ -85,6 +84,16 @@ output:
   #     confidence: { type: number }
   #   required: [answer]
 ```
+
+## Built-in tools
+
+The agent always has access to one built-in tool regardless of `mcpTools` configuration:
+
+| Tool | Purpose |
+|------|---------|
+| `todowrite` | Maintains an in-memory todo list for the duration of a single run. Each call **replaces** the entire list. Use it to break complex requests into steps and track progress (`pending` → `in_progress` → `completed`). The store is reset between requests. |
+
+All other tools are provided externally via MCP servers configured under `mcpTools`.
 
 ## HTTP API
 
