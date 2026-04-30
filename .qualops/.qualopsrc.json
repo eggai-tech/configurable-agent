@@ -1,0 +1,15 @@
+{
+  "ai": {
+    "reviewStage": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514"
+    }
+  },
+  "review": {
+    "minConfidence": 4
+  },
+  "github": {
+    "postComments": true,
+    "maxInlineComments": 50
+  }
+}
