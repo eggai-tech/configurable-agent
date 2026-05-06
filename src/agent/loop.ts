@@ -17,6 +17,7 @@ import { renderSystemPrompt } from './prompt.js';
 import { maybeCompactMessages } from './safety/compaction.js';
 
 import { buildMcpRegistry, wrapToolsWithSummarization } from './tools/mcp.js';
+import { createTodoStore, createTodoWriteTool } from './tools/todowrite.js';
 
 export type { AgentEmitter, AgentEvent } from './events.js';
 
@@ -60,7 +61,12 @@ export async function runAgent(
     rawTools = registry.tools;
     cleanup = registry.cleanup;
   }
-  const tools = wrapToolsWithSummarization(rawTools, { config, summarize });
+  const mcpTools = wrapToolsWithSummarization(rawTools, { config, summarize });
+  const todoStore = createTodoStore();
+  const tools = {
+    ...mcpTools,
+    todowrite: createTodoWriteTool(todoStore),
+  };
 
   try {
     let finishReason: FinishReason | 'unknown' = 'unknown';
