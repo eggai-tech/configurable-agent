@@ -1,15 +1,26 @@
 {
   "ai": {
     "reviewStage": {
+      "model": "claude-opus-4-5",
       "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514"
+      "inputPerMillion": 15,
+      "outputPerMillion": 75
     }
   },
   "review": {
-    "minConfidence": 4
+    "minConfidence": 4,
+    "pipeline": [
+      {
+        "name": "General review",
+        "enabled": true,
+        "mode": "agentic",
+        "passes": []
+      }
+    ]
   },
   "github": {
     "postComments": true,
     "maxInlineComments": 50
   }
 }
+
