@@ -1,7 +1,7 @@
 {
   "ai": {
     "reviewStage": {
-      "model": "claude-opus-4-5",
+      "model": "claude-sonnet-4-6",
       "provider": "anthropic",
       "inputPerMillion": 15,
       "outputPerMillion": 75
