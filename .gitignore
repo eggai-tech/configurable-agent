@@ -17,3 +17,6 @@ coverage
 .vscode
 .idea
 *.swp
+
+# fallow cache
+.fallow/
