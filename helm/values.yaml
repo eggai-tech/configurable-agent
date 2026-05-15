@@ -1,0 +1,87 @@
+# configurable-agent Helm values
+# Phase 5 (Config Generation Engine) reads this template and substitutes
+# the per-solution config from the user's chat-driven composition.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/eggai-tech/configurable-agent
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Solution correlation label (per solutionId convention — k8s label
+# solution.eggai.io/id=<solutionId> stamped on every resource).
+solutionId: ""
+
+# Application config — rendered into a ConfigMap, mounted at /etc/configurable-agent/config.yaml
+# Field shape matches the descriptor.yaml configSchema.
+config:
+  systemPrompt: |
+    You are Configurable Agent, a helpful assistant. Use the tools available to you to answer
+    the user's question. When you are ready to answer, produce a concise response.
+    Today is {{today}} (current time: {{now}}). You are running in {{cwd}}.
+  model:
+    provider: anthropic
+    name: claude-sonnet-4-6
+    temperature: 0.2
+  agent:
+    maxSteps: 10
+  mcpTools: []
+  safety:
+    compaction:
+      triggerTokens: 100000
+      keepRecentMessages: 6
+    toolOutput:
+      triggerTokens: 4000
+      headChars: 500
+      tailChars: 500
+  output:
+    structured: false
+
+# Provider API keys — populated from a Kubernetes Secret named
+# `<release>-provider-keys`. Expected keys depend on model.provider:
+#   anthropic -> ANTHROPIC_API_KEY
+#   openai    -> OPENAI_API_KEY
+#   google    -> GOOGLE_GENERATIVE_AI_API_KEY
+providerKeysSecretName: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  capabilities:
+    drop:
+      - ALL
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 2
+  periodSeconds: 10
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 30
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,40 +1,38 @@
 # syntax=docker/dockerfile:1.7
-
-# Build context must be the repo root, not configurable-agent/, because
-# configurable-agent now depends on the @eggai-tech/mo workspace package.
-# Build command:
+# Standalone build — configurable-agent has no workspace dependencies.
+# Earlier versions of this Dockerfile assumed a sibling workspace package
+# was required at build time; that is no longer the case (verify via
+# `pnpm ls --depth -1` from this directory: no workspace siblings).
 #
-#   docker build -f configurable-agent/Dockerfile -t eggai-configurable-agent:dev .
+# Build command:
+#   docker build -t eggai-configurable-agent:dev .
 
 FROM node:22-bookworm-slim AS deps
-WORKDIR /repo
+WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-COPY mo/package.json ./mo/
-COPY configurable-agent/package.json ./configurable-agent/
+COPY package.json pnpm-lock.yaml ./
+# pnpm-workspace.yaml is consulted by pnpm even in single-project mode for
+# supply-chain settings (minimumReleaseAge); copy if present.
+COPY pnpm-workspace.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile --filter configurable-agent... --filter @eggai-tech/mo...
+    pnpm install --frozen-lockfile
 
 FROM deps AS build
-COPY mo ./mo
-COPY configurable-agent ./configurable-agent
-RUN pnpm --filter @eggai-tech/mo build \
- && pnpm --filter configurable-agent build
-# Flatten configurable-agent + its prod workspace deps into a self-contained
-# tree that doesn't need pnpm at runtime. inject-workspace-packages=true is
-# required by pnpm v10 to deploy workspace deps (without it, only the
-# --legacy code path works, which has known bin-linking quirks).
-RUN pnpm --filter configurable-agent deploy \
-      --prod \
-      --config.inject-workspace-packages=true \
-      /out
+COPY tsconfig.json tsconfig.build.json ./
+COPY src ./src
+RUN pnpm run build
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
     CONFIG_PATH=/etc/configurable-agent/config.yaml
-COPY --from=build /out ./
+RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+COPY package.json pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml* ./
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --prod
+COPY --from=build /app/dist ./dist
 USER node
 EXPOSE 3000
 CMD ["node", "dist/index.js", "serve"]
