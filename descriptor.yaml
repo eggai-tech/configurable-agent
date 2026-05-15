@@ -1,0 +1,120 @@
+id: configurable-agent
+category: agent
+schemaVersion: "1.0.0"
+image: ghcr.io/eggai-tech/configurable-agent:latest
+configSchema:
+  systemPrompt:
+    type: string
+    description: "System prompt for the agent. Supports Handlebars variables: {{now}}, {{today}}, {{cwd}}, plus any keys from promptVars."
+  model:
+    type: object
+    description: "LLM model configuration"
+    properties:
+      provider:
+        type: enum
+        values: [anthropic, openai, google, ollama]
+        description: "Model provider"
+      name:
+        type: string
+        description: "Model name (e.g. claude-sonnet-4-6, gpt-4o, gemma3:27b)"
+      baseUrl:
+        type: string
+        required: false
+        description: "Optional base URL override (e.g. for ollama: http://host.docker.internal:11434/v1)"
+      temperature:
+        type: number
+        required: false
+        description: "Sampling temperature 0.0-2.0"
+      topP:
+        type: number
+        required: false
+        description: "Top-p nucleus sampling 0.0-1.0"
+      maxOutputTokens:
+        type: number
+        required: false
+        description: "Maximum tokens in model output"
+  agent:
+    type: object
+    description: "Agent loop settings"
+    properties:
+      maxSteps:
+        type: number
+        description: "Maximum tool-use steps before stopping (default 10)"
+  mcpTools:
+    type: array
+    required: false
+    description: "MCP tool servers to connect at startup. transport=stdio spawns a child process; transport=http connects to a remote MCP server."
+    items:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Logical name for this MCP server (used in tool namespacing)"
+        transport:
+          type: enum
+          values: [stdio, http]
+          description: "stdio = spawn child process; http = remote MCP server"
+        command:
+          type: string
+          required: false
+          description: "(stdio only) Executable on PATH inside the container"
+        url:
+          type: string
+          required: false
+          description: "(http only) MCP server URL"
+  safety:
+    type: object
+    required: false
+    description: "Conversation safety / context-window management"
+    properties:
+      compaction:
+        type: object
+        properties:
+          triggerTokens:
+            type: number
+            description: "Compact when message history exceeds this token count (default 100000)"
+          keepRecentMessages:
+            type: number
+            description: "Number of recent messages kept verbatim after compaction (default 6)"
+      toolOutput:
+        type: object
+        properties:
+          triggerTokens:
+            type: number
+            description: "Tool outputs larger than this are LLM-summarized (default 4000)"
+          headChars:
+            type: number
+            description: "Characters retained at the head of a truncated tool output (default 500)"
+          tailChars:
+            type: number
+            description: "Characters retained at the tail of a truncated tool output (default 500)"
+  output:
+    type: object
+    required: false
+    description: "Output format configuration"
+    properties:
+      structured:
+        type: boolean
+        description: "Emit structured JSON output (requires schema)"
+examples:
+  - systemPrompt: "You are a helpful assistant. Today is {{today}}."
+    model:
+      provider: anthropic
+      name: claude-sonnet-4-6
+      temperature: 0.2
+    agent:
+      maxSteps: 10
+    mcpTools:
+      - name: harvest
+        transport: stdio
+        command: harvest-mcp-server
+    safety:
+      compaction:
+        triggerTokens: 100000
+        keepRecentMessages: 6
+      toolOutput:
+        triggerTokens: 4000
+        headChars: 500
+        tailChars: 500
+    output:
+      structured: false
