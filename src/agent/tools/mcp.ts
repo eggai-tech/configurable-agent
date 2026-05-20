@@ -58,7 +58,7 @@ async function createClientForServer(server: McpServerConfig): Promise<MCPClient
   }
   return createMCPClient({
     transport: {
-      type: 'http',
+      type: server.transport,
       url: server.url,
       headers: server.headers,
     },

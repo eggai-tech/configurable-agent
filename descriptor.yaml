@@ -43,7 +43,7 @@ configSchema:
   mcpTools:
     type: array
     required: false
-    description: "MCP tool servers to connect at startup. transport=stdio spawns a child process; transport=http connects to a remote MCP server."
+    description: "MCP tool servers to connect at startup. transport=stdio spawns a child process; transport=http/sse connects to a remote MCP server."
     items:
       type: object
       properties:
@@ -52,8 +52,8 @@ configSchema:
           description: "Logical name for this MCP server (used in tool namespacing)"
         transport:
           type: enum
-          values: [stdio, http]
-          description: "stdio = spawn child process; http = remote MCP server"
+          values: [stdio, http, sse]
+          description: "stdio = spawn child process; http = remote MCP server (Streamable HTTP); sse = remote MCP server (legacy SSE transport)"
         command:
           type: string
           required: false
@@ -61,7 +61,7 @@ configSchema:
         url:
           type: string
           required: false
-          description: "(http only) MCP server URL"
+          description: "(http/sse only) MCP server URL"
   safety:
     type: object
     required: false
