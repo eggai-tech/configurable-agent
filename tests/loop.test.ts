@@ -1,7 +1,7 @@
-import type { LanguageModelV2CallOptions, LanguageModelV2StreamPart } from '@ai-sdk/provider';
+import type { LanguageModelV3CallOptions, LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 import { jsonSchema } from 'ai';
-import { MockLanguageModelV2, convertArrayToReadableStream } from 'ai/test';
+import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
 import { type AgentEvent, prepareMessages, runAgent } from '../src/agent/loop.js';
 import type { AgentConfig } from '../src/config/schema.js';
@@ -78,7 +78,16 @@ describe('prepareMessages', () => {
   });
 });
 
-type StreamPart = LanguageModelV2StreamPart;
+type StreamPart = LanguageModelV3StreamPart;
+
+const STUB_USAGE = {
+  inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+  outputTokens: { total: 5, text: 5, reasoning: undefined },
+} as const;
+
+function finish(unified: 'stop' | 'tool-calls'): { unified: typeof unified; raw: undefined } {
+  return { unified, raw: undefined };
+}
 
 function toolCallStream(toolName: string, input: Record<string, unknown>): StreamPart[] {
   return [
@@ -91,8 +100,8 @@ function toolCallStream(toolName: string, input: Record<string, unknown>): Strea
     },
     {
       type: 'finish',
-      usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
-      finishReason: 'tool-calls',
+      usage: STUB_USAGE,
+      finishReason: finish('tool-calls'),
     },
   ];
 }
@@ -105,8 +114,8 @@ function textStream(text: string): StreamPart[] {
     { type: 'text-end', id: 't1' },
     {
       type: 'finish',
-      usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
-      finishReason: 'stop',
+      usage: STUB_USAGE,
+      finishReason: finish('stop'),
     },
   ];
 }
@@ -127,19 +136,19 @@ function fakeMcpTool(executeOutput: unknown) {
 }
 
 interface DoStreamCall {
-  prompt: LanguageModelV2CallOptions['prompt'];
+  prompt: LanguageModelV3CallOptions['prompt'];
 }
 
 function multiStepModel(
   streams: StreamPart[][],
   opts: { summarizeText?: string } = {},
 ): {
-  model: MockLanguageModelV2;
+  model: MockLanguageModelV3;
   calls: DoStreamCall[];
 } {
   const calls: DoStreamCall[] = [];
   let idx = 0;
-  const model = new MockLanguageModelV2({
+  const model = new MockLanguageModelV3({
     doStream: async (callOpts) => {
       calls.push({ prompt: callOpts.prompt });
       const parts = streams[idx++];
@@ -151,8 +160,8 @@ function multiStepModel(
     // SUMMARY text routed back into the next step's prompt.
     doGenerate: async () => ({
       content: [{ type: 'text', text: opts.summarizeText ?? 'STUB-SUMMARY' }],
-      finishReason: 'stop' as const,
-      usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+      finishReason: finish('stop'),
+      usage: STUB_USAGE,
       warnings: [],
     }),
   });
