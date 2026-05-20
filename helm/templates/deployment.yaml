@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "configurable-agent.fullname" . }}
+  labels:
+    {{- include "configurable-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "configurable-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "configurable-agent.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: configurable-agent
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: CONFIG_PATH
+              value: /etc/configurable-agent/config.yaml
+            - name: PORT
+              value: "3000"
+            - name: LOG_LEVEL
+              value: info
+          {{- if .Values.providerKeysSecretName }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.providerKeysSecretName }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/configurable-agent
+              readOnly: true
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "configurable-agent.fullname" . }}-config
+            items:
+              - key: config.yaml
+                path: config.yaml

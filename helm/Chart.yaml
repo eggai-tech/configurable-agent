@@ -1,0 +1,9 @@
+apiVersion: v2
+name: configurable-agent
+description: Wally LLM agent — configurable via primitive descriptor (Hono + Vercel AI SDK + MCP)
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/eggai-tech/configurable-agent
+maintainers:
+  - name: eggai-tech
