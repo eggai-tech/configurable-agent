@@ -1,0 +1,10 @@
+name: todowrite
+description: Agent should use the todowrite tool to create a structured todo list when asked to plan a multi-step task.
+input:
+  messages:
+    - role: user
+      content: "Use the todowrite tool to create a plan for making a cup of tea. Include at least three steps."
+expect:
+  elements:
+    - "The response references at least three steps or tasks"
+    - "The response does not refuse the planning request"

@@ -10,19 +10,5 @@ model:
 agent:
   maxSteps: 3
 
-tools:
-  bash:
-    enabled: true
-    timeoutMs: 10000
-    policy:
-      approval:
-        enabled: false
-  websearch:
-    enabled: false
-  http:
-    enabled: false
-  todowrite:
-    enabled: false
-
 evals:
   dir: ./mo-evals
