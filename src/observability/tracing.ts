@@ -17,7 +17,13 @@ export function startTracing(): void {
       [SemanticResourceAttributes.SERVICE_VERSION]: process.env.OTEL_SERVICE_VERSION ?? '0.1.0',
     }),
     traceExporter: new OTLPTraceExporter(),
-    instrumentations: [getNodeAutoInstrumentations()],
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-http': {
+          requireParentforIncomingSpans: true,
+        },
+      }),
+    ],
   });
   sdk.start();
 }
