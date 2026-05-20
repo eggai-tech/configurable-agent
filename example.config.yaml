@@ -39,7 +39,10 @@ agent:
 # non-zero. Clients are reused across all /invoke requests, not rebuilt per
 # request.
 
-mcpTools: []
+mcpTools:
+  - name: playwright
+    transport: sse
+    url: http://playwright-mcp:8931/sse
 
 # Example stdio server (local executable on PATH):
 # mcpTools:
