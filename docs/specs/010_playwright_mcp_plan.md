@@ -9,11 +9,18 @@ out-of-the-box agent can drive a real browser.
 ## Decisions
 
 - **Transport: SSE, not Streamable HTTP.**
-  `@ai-sdk/mcp@0.0.16`'s Streamable-HTTP transport (`type: 'http'`) does not
-  round-trip sessions correctly against Playwright MCP: connection + tool
-  discovery succeed, but the first `tools/call` returns
-  `HTTP 404: Session not found`. The error text itself recommends SSE, and
-  Playwright MCP exposes `/sse` on the same port for exactly this reason.
+  `@ai-sdk/mcp`'s Streamable-HTTP transport (`type: 'http'`) hangs on the first
+  `tools/call` against Playwright MCP: the POST returns `200 text/event-stream`
+  with the response event in the body, but the AI SDK's fire-and-forget
+  `processEvents` IIFE that reads that body never delivers the parsed message
+  to `onmessage`, so the request promise never resolves. After an idle timeout
+  the failure surfaces as `HTTP 404: Session not found` instead. Confirmed
+  against `@ai-sdk/mcp@0.0.16` *and* `@ai-sdk/mcp@1.0.42` (latest); a bare
+  `fetch` + `EventSourceParserStream` against the same `/mcp` endpoint reads
+  the event in ~135 ms without issue, so the bug is in `@ai-sdk/mcp`'s
+  `HttpMCPTransport`, not in Playwright MCP or our code. Playwright MCP also
+  exposes `/sse` for exactly this fallback — the AI SDK's SSE transport works
+  reliably.
 - **Schema gets a third transport variant (`sse`).**
   The existing discriminated union (`stdio | http`) had no room for SSE.
   We add `McpSseServerSchema` (same shape as the HTTP variant: `url`,
