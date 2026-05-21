@@ -2,9 +2,23 @@ import { experimental_createMCPClient as createMCPClient } from '@ai-sdk/mcp';
 import type { experimental_MCPClient as MCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import type { Tool, ToolSet } from 'ai';
+import { Agent, fetch as undiciFetch } from 'undici';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
 import type { ToolResult } from '../events.js';
 import { type ToolSummaryRuntime, maybeSummarizeToolOutput } from '../safety/tool-summary.js';
+
+// MCP SSE (and Streamable-HTTP inbound) streams send no data while the agent
+// is idle. undici's default bodyTimeout (5 min) aborts those streams, which
+// makes the upstream MCP server delete the session and the next tool call
+// hang forever. Use a dedicated dispatcher for MCP HTTP traffic only, so LLM
+// API calls keep their normal timeouts.
+const MCP_DISPATCHER = new Agent({ bodyTimeout: 0 });
+// Use undici's own fetch (matches the installed undici Dispatcher contract;
+// Node's built-in fetch ships an older incompatible undici internally).
+type UndiciInput = Parameters<typeof undiciFetch>[0];
+type UndiciInit = Parameters<typeof undiciFetch>[1];
+const mcpFetch = ((input: UndiciInput, init?: UndiciInit) =>
+  undiciFetch(input, { ...init, dispatcher: MCP_DISPATCHER })) as unknown as typeof fetch;
 
 export interface McpRegistry {
   tools: ToolSet;
@@ -61,6 +75,7 @@ async function createClientForServer(server: McpServerConfig): Promise<MCPClient
       type: server.transport,
       url: server.url,
       headers: server.headers,
+      fetch: mcpFetch,
     },
   });
 }
