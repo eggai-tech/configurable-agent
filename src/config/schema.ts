@@ -21,9 +21,17 @@ const McpHttpServerSchema = z.object({
   headers: z.record(z.string()).optional().default({}),
 });
 
+const McpSseServerSchema = z.object({
+  name: z.string().min(1),
+  transport: z.literal('sse'),
+  url: z.string().url(),
+  headers: z.record(z.string()).optional().default({}),
+});
+
 const McpServerSchema = z.discriminatedUnion('transport', [
   McpStdioServerSchema,
   McpHttpServerSchema,
+  McpSseServerSchema,
 ]);
 
 export type McpServerConfig = z.infer<typeof McpServerSchema>;

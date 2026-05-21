@@ -20,6 +20,20 @@ services:
       start_period: 30s
     depends_on:
       - tempo
+      - playwright-mcp
+
+  playwright-mcp:
+    image: mcr.microsoft.com/playwright/mcp:latest
+    command:
+      - "--port=8931"
+      - "--host=0.0.0.0"
+      - "--allowed-hosts=*"
+      - "--headless"
+      - "--browser=chromium"
+      - "--isolated"
+    ports:
+      - "8931:8931"
+    init: true
 
   tempo:
     image: grafana/tempo:2.6.1

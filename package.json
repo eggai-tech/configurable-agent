@@ -6,7 +6,9 @@
   "bin": {
     "configurable-agent": "dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -23,11 +25,11 @@
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.0",
-    "@ai-sdk/google": "^2.0.0",
-    "@ai-sdk/mcp": "^0.0.16",
-    "@ai-sdk/openai": "^2.0.0",
-    "@ai-sdk/openai-compatible": "^1.0.36",
+    "@ai-sdk/anthropic": "^3.0.77",
+    "@ai-sdk/google": "^3.0.73",
+    "@ai-sdk/mcp": "^1.0.42",
+    "@ai-sdk/openai": "^3.0.63",
+    "@ai-sdk/openai-compatible": "^2.0.47",
     "@hono/node-server": "^1.14.0",
     "@hono/otel": "1.1.2",
     "@opentelemetry/api": "^1.9.0",
@@ -36,7 +38,7 @@
     "@opentelemetry/resources": "^1.30.0",
     "@opentelemetry/sdk-node": "^0.55.0",
     "@opentelemetry/semantic-conventions": "^1.28.0",
-    "ai": "^5.0.0",
+    "ai": "^6.0.182",
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",
     "commander": "^14.0.3",
@@ -45,11 +47,12 @@
     "hono": "^4.6.0",
     "pino": "^9.5.0",
     "shell-quote": "^1.8.3",
+    "undici": "8.2.0",
     "yaml": "^2.6.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@ai-sdk/provider": "2.0.1",
+    "@ai-sdk/provider": "3.0.10",
     "@biomejs/biome": "^1.9.0",
     "@types/node": "^22.10.0",
     "@types/shell-quote": "^1.7.5",

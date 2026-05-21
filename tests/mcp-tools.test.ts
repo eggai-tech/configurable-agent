@@ -137,6 +137,34 @@ describe('buildMcpRegistry', () => {
     expect(client.closed).toBe(true);
   });
 
+  it('discovers tools from an SSE server', async () => {
+    const client = fakeClient({ toolsResult: { browser_navigate: fakeTool('browser_navigate') } });
+    vi.mocked(createClient).mockResolvedValueOnce(client as never);
+
+    const reg = await buildMcpRegistry(
+      baseConfig({
+        mcpTools: [
+          {
+            name: 'browser',
+            transport: 'sse',
+            url: 'http://playwright-mcp:8931/sse',
+            headers: {},
+          },
+        ],
+      }),
+    );
+
+    expect(Object.keys(reg.tools)).toEqual(['browser_navigate']);
+    const callArg = vi.mocked(createClient).mock.calls.at(-1)?.[0] as {
+      transport: { type?: string; url?: string };
+    };
+    expect(callArg.transport.type).toBe('sse');
+    expect(callArg.transport.url).toBe('http://playwright-mcp:8931/sse');
+
+    await reg.cleanup();
+    expect(client.closed).toBe(true);
+  });
+
   it('fails startup when two servers expose the same tool name', async () => {
     const a = fakeClient({ toolsResult: { shared: fakeTool('shared-a') } });
     const b = fakeClient({ toolsResult: { shared: fakeTool('shared-b') } });

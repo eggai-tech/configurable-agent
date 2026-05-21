@@ -94,6 +94,31 @@ mcpTools:
     }
   });
 
+  it('accepts a config with mcpTools sse server', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "ok"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+mcpTools:
+  - name: browser
+    transport: sse
+    url: http://playwright-mcp:8931/sse
+    headers:
+      X-Tenant: acme
+`,
+    );
+    const cfg = loadConfig(path);
+    expect(cfg.mcpTools).toHaveLength(1);
+    const server = cfg.mcpTools[0];
+    expect(server?.transport).toBe('sse');
+    if (server?.transport === 'sse') {
+      expect(server.url).toBe('http://playwright-mcp:8931/sse');
+      expect(server.headers).toEqual({ 'X-Tenant': 'acme' });
+    }
+  });
+
   it('throws ConfigError for invalid YAML', () => {
     const path = write('config.yaml', 'this: is: not: yaml: [');
     expect(() => loadConfig(path)).toThrow(ConfigError);
