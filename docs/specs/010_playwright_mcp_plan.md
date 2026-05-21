@@ -34,6 +34,17 @@ out-of-the-box agent can drive a real browser.
   interfaces and `--headless --isolated --browser=chromium` to keep the
   container ephemeral.
 
+- **MCP fetches go through a dedicated undici Agent with `bodyTimeout=0`.**
+  undici's default 5-min `bodyTimeout` aborts the silent SSE GET stream MCP
+  servers hold open between tool calls. When the abort fires on the agent
+  side, Playwright MCP sees `res.on('close')` and tears down the session and
+  the browser. The next tool call then hangs forever, because the AI SDK's
+  SSE `transport.send()` calls `onerror` but doesn't propagate non-2xx as a
+  rejection (the original `request()` promise never resolves). The fix uses
+  undici's own `fetch` (its Dispatcher contract is incompatible with Node's
+  bundled fetch) through a private Agent with the body timeout disabled,
+  scoped only to MCP traffic so LLM API calls keep their normal timeouts.
+
 ## Changes
 
 | File | Change |
