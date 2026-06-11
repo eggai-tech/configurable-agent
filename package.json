@@ -9,6 +9,7 @@
   "exports": {
     "./lib": {
       "import": "./dist/lib/index.js",
+      "default": "./dist/lib/index.js",
       "types": "./dist/lib/index.d.ts"
     }
   },
