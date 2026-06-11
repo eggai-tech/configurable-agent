@@ -1,10 +1,16 @@
 {
-  "name": "configurable-agent",
+  "name": "@eggai/configurable-agent",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
     "configurable-agent": "dist/index.js"
+  },
+  "exports": {
+    "./lib": {
+      "import": "./dist/lib/index.js",
+      "types": "./dist/lib/index.d.ts"
+    }
   },
   "files": ["dist"],
   "engines": {
@@ -51,6 +57,7 @@
     "@biomejs/biome": "^1.9.0",
     "@types/node": "^22.10.0",
     "@types/shell-quote": "^1.7.5",
+    "@vitest/coverage-v8": "^4.1.4",
     "msw": "^2.13.4",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",

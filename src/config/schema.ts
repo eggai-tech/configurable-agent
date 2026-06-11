@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-export const ModelProvider = z.enum(['anthropic', 'openai', 'google', 'ollama']);
+export const ModelProvider = z.enum([
+  'anthropic',
+  'openai',
+  'google',
+  'ollama',
+  'openai-compatible',
+]);
 export type ModelProvider = z.infer<typeof ModelProvider>;
 
 const JsonSchemaObject = z.record(z.unknown());
@@ -36,6 +42,7 @@ export const AgentConfigSchema = z
       provider: ModelProvider,
       name: z.string().min(1),
       baseUrl: z.string().url().optional(),
+      apiKey: z.string().optional(),
       temperature: z.number().min(0).max(2).optional(),
       topP: z.number().min(0).max(1).optional(),
       maxOutputTokens: z.number().int().positive().optional(),

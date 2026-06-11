@@ -72,6 +72,8 @@ export async function runAgent(
     let finishReason: FinishReason | 'unknown' = 'unknown';
     let lastText = '';
     let stepsRun = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     for (let step = 0; step < maxSteps; step++) {
       stepsRun = step + 1;
@@ -151,6 +153,9 @@ export async function runAgent(
       const response = await stream.response;
       messages = [...messages, ...response.messages];
       finishReason = await stream.finishReason;
+      const stepUsage = await stream.usage;
+      totalInputTokens += stepUsage.inputTokens ?? 0;
+      totalOutputTokens += stepUsage.outputTokens ?? 0;
 
       if (isLastStep && stepHasToolCalls) {
         await emit({
@@ -196,6 +201,7 @@ export async function runAgent(
           stopReason: String(finishReason),
           steps: stepsRun,
           truncated: false,
+          usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
         });
         return;
       }

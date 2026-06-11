@@ -260,3 +260,52 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
     expect(execute).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('runAgent — token usage in final event', () => {
+  it('includes inputTokens and outputTokens in the final event', async () => {
+    // textStream emits finish with inputTokens:5, outputTokens:5 per step
+    const { model } = multiStepModel([textStream('done')]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const final = events.find((e) => e.type === 'final');
+    if (final?.type !== 'final') throw new Error('no final event emitted');
+    expect(final).toHaveProperty('usage');
+    const usage = (final as { usage?: { inputTokens: number; outputTokens: number } }).usage;
+    expect(usage).toBeDefined();
+    expect(typeof usage?.inputTokens).toBe('number');
+    expect(typeof usage?.outputTokens).toBe('number');
+  });
+
+  it('accumulates usage across multiple steps', async () => {
+    // tool step (inputTokens:5, outputTokens:5) + text step (inputTokens:5, outputTokens:5)
+    const tools = {
+      ping: fakeMcpTool({ content: [{ type: 'text', text: 'pong' }] }),
+    };
+    const { model } = multiStepModel([toolCallStream('ping', {}), textStream('done')]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'ping' }],
+      (e) => void events.push(e),
+      undefined,
+      { model, tools: tools as never },
+    );
+
+    const final = events.find((e) => e.type === 'final');
+    if (final?.type !== 'final') throw new Error('no final event emitted');
+    const usage = (final as { usage?: { inputTokens: number; outputTokens: number } }).usage;
+    expect(usage).toBeDefined();
+    // 2 steps × 5 tokens each = 10 total for each
+    expect(usage?.inputTokens).toBe(10);
+    expect(usage?.outputTokens).toBe(10);
+  });
+});

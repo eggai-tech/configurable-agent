@@ -39,6 +39,7 @@ export type AgentEvent =
       stopReason: string;
       steps: number;
       truncated: boolean;
+      usage?: { inputTokens: number; outputTokens: number };
     }
   | { type: 'error'; code: string; message: string; details?: unknown };
 
