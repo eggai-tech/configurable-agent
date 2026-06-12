@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Library entry point (`@eggai/configurable-agent/lib`) exposing `runAgent`, `AgentConfig`, `AgentEvent`, and related types
+- `openai-compatible` provider with `baseUrl` and `apiKey` support
+- Token usage (`inputTokens`, `outputTokens`) in `final` event
+- `diagnoseStep`: exported pure function detecting TPM rate limit exhaustion and max-tokens truncation
+- npm publish workflow with provenance (no token required) and changelog enforcement
+
 ## [0.1.0] - 2026-06-12
 
 ### Added
