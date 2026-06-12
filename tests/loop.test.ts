@@ -3,7 +3,7 @@ import type { ModelMessage } from 'ai';
 import { jsonSchema } from 'ai';
 import { MockLanguageModelV2, convertArrayToReadableStream } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
-import { type AgentEvent, prepareMessages, runAgent } from '../src/agent/loop.js';
+import { type AgentEvent, diagnoseStep, prepareMessages, runAgent } from '../src/agent/loop.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
@@ -310,24 +310,79 @@ describe('runAgent — token usage in final event', () => {
   });
 });
 
-describe('runAgent — rate limit and stream error handling', () => {
-  function modelWithHeaders(
-    parts: StreamPart[],
-    headers: Record<string, string>,
-  ): MockLanguageModelV2 {
-    return new MockLanguageModelV2({
-      doStream: async () => ({
-        stream: convertArrayToReadableStream(parts),
-        response: { headers },
-      }),
-    });
-  }
+describe('diagnoseStep', () => {
+  const noHeaders = {};
 
-  it('emits rate_limit_tokens error with partialContent when remaining tokens < 5% of limit', async () => {
-    const model = modelWithHeaders(textStream('partial'), {
-      'x-ratelimit-limit-tokens': '30000',
-      'x-ratelimit-remaining-tokens': '100',
-      'x-ratelimit-reset-tokens': '59s',
+  it('returns rate_limit_tokens when remaining < 5% of limit', () => {
+    const result = diagnoseStep({
+      finishReason: 'stop',
+      stepText: 'partial',
+      responseHeaders: {
+        'x-ratelimit-limit-tokens': '30000',
+        'x-ratelimit-remaining-tokens': '100',
+        'x-ratelimit-reset-tokens': '59s',
+      },
+    });
+    expect(result?.code).toBe('rate_limit_tokens');
+    expect(result?.message).toContain('29900/30000');
+    expect(result?.message).toContain('59s');
+    expect(result?.partialContent).toBe('partial');
+  });
+
+  it('returns null when remaining tokens are above threshold', () => {
+    const result = diagnoseStep({
+      finishReason: 'stop',
+      stepText: '',
+      responseHeaders: {
+        'x-ratelimit-limit-tokens': '30000',
+        'x-ratelimit-remaining-tokens': '5000',
+      },
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns max_tokens_reached when finishReason is length', () => {
+    const result = diagnoseStep({
+      finishReason: 'length',
+      stepText: 'truncated',
+      responseHeaders: noHeaders,
+    });
+    expect(result?.code).toBe('max_tokens_reached');
+    expect(result?.partialContent).toBe('truncated');
+  });
+
+  it('omits partialContent when stepText is empty', () => {
+    const result = diagnoseStep({
+      finishReason: 'length',
+      stepText: '',
+      responseHeaders: noHeaders,
+    });
+    expect(result?.code).toBe('max_tokens_reached');
+    expect(result?.partialContent).toBeUndefined();
+  });
+
+  it('returns null for a normal stop with no rate limit headers', () => {
+    const result = diagnoseStep({
+      finishReason: 'stop',
+      stepText: 'done',
+      responseHeaders: noHeaders,
+    });
+    expect(result).toBeNull();
+  });
+});
+
+describe('runAgent — error propagation integration', () => {
+  it('emits rate_limit_tokens via full loop when headers indicate exhaustion', async () => {
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({
+        stream: convertArrayToReadableStream(textStream('partial')),
+        response: {
+          headers: {
+            'x-ratelimit-limit-tokens': '30000',
+            'x-ratelimit-remaining-tokens': '100',
+          },
+        },
+      }),
     });
 
     const events: AgentEvent[] = [];
@@ -340,30 +395,8 @@ describe('runAgent — rate limit and stream error handling', () => {
     );
 
     const error = events.find((e) => e.type === 'error');
-    if (error?.type !== 'error') throw new Error('expected error event');
-    expect(error.code).toBe('rate_limit_tokens');
-    expect(error.message).toContain('29900/30000');
-    expect(error.message).toContain('59s');
-    expect((error as { partialContent?: string }).partialContent).toBe('partial');
-  });
-
-  it('does not emit rate_limit_tokens when remaining tokens are above threshold', async () => {
-    const model = modelWithHeaders(textStream('done'), {
-      'x-ratelimit-limit-tokens': '30000',
-      'x-ratelimit-remaining-tokens': '5000',
-    });
-
-    const events: AgentEvent[] = [];
-    await runAgent(
-      baseConfig(),
-      [{ role: 'user', content: 'go' }],
-      (e) => void events.push(e),
-      undefined,
-      { model },
-    );
-
-    expect(events.find((e) => e.type === 'error')).toBeUndefined();
-    expect(events.find((e) => e.type === 'final')).toBeDefined();
+    expect(error?.type).toBe('error');
+    if (error?.type === 'error') expect(error.code).toBe('rate_limit_tokens');
   });
 
   it('emits stream_error with partialContent when stream errors mid-response', async () => {
@@ -390,5 +423,36 @@ describe('runAgent — rate limit and stream error handling', () => {
     if (error?.type !== 'error') throw new Error('expected error event');
     expect(error.code).toBe('stream_error');
     expect((error as { partialContent?: string }).partialContent).toBe('partial response');
+  });
+
+  it('emits max_tokens_reached via full loop when finishReason is length', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'cut off' },
+      { type: 'text-end', id: 't1' },
+      {
+        type: 'finish',
+        usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+        finishReason: 'length',
+      },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('max_tokens_reached');
+    expect((error as { partialContent?: string }).partialContent).toBe('cut off');
   });
 });

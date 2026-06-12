@@ -161,22 +161,15 @@ export async function runAgent(
       const stepUsage = await stream.usage;
       totalInputTokens += stepUsage.inputTokens ?? 0;
       totalOutputTokens += stepUsage.outputTokens ?? 0;
-      const remainingTokens = stepResponseHeaders['x-ratelimit-remaining-tokens'];
-      const limitTokens = stepResponseHeaders['x-ratelimit-limit-tokens'];
-      const resetTokens = stepResponseHeaders['x-ratelimit-reset-tokens'];
-      if (remainingTokens !== undefined && limitTokens !== undefined) {
-        const remaining = Number.parseInt(remainingTokens, 10);
-        const limit = Number.parseInt(limitTokens, 10);
-        if (!Number.isNaN(remaining) && !Number.isNaN(limit) && remaining / limit < 0.05) {
-          await emit({
-            type: 'error',
-            code: 'rate_limit_tokens',
-            message: `TPM rate limit exhausted: input consumed ${limit - remaining}/${limit} tokens, leaving only ${remaining} for output${resetTokens ? ` (resets in ${resetTokens})` : ''}. Split the request into smaller batches.`,
-            details: { remaining, limit, resetTokens },
-            ...(stepText ? { partialContent: stepText } : {}),
-          });
-          return;
-        }
+
+      const diagnosis = diagnoseStep({
+        finishReason: String(finishReason),
+        stepText,
+        responseHeaders: stepResponseHeaders,
+      });
+      if (diagnosis) {
+        await emit({ type: 'error', ...diagnosis });
+        return;
       }
 
       if (isLastStep && stepHasToolCalls) {
@@ -243,6 +236,46 @@ export async function runAgent(
 export function prepareMessages(config: AgentConfig, incoming: ModelMessage[]): ModelMessage[] {
   const withoutSystem = incoming.filter((m) => m.role !== 'system');
   return [{ role: 'system', content: renderSystemPrompt(config) }, ...withoutSystem];
+}
+
+export interface StepDiagnosis {
+  code: string;
+  message: string;
+  details?: unknown;
+  partialContent?: string;
+}
+
+export function diagnoseStep(ctx: {
+  finishReason: string;
+  stepText: string;
+  responseHeaders: Record<string, string>;
+}): StepDiagnosis | null {
+  const remainingRaw = ctx.responseHeaders['x-ratelimit-remaining-tokens'];
+  const limitRaw = ctx.responseHeaders['x-ratelimit-limit-tokens'];
+  const resetTokens = ctx.responseHeaders['x-ratelimit-reset-tokens'];
+  if (remainingRaw !== undefined && limitRaw !== undefined) {
+    const remaining = Number.parseInt(remainingRaw, 10);
+    const limit = Number.parseInt(limitRaw, 10);
+    if (!Number.isNaN(remaining) && !Number.isNaN(limit) && remaining / limit < 0.05) {
+      return {
+        code: 'rate_limit_tokens',
+        message: `TPM rate limit exhausted: input consumed ${limit - remaining}/${limit} tokens, leaving only ${remaining} for output${resetTokens ? ` (resets in ${resetTokens})` : ''}. Split the request into smaller batches.`,
+        details: { remaining, limit, resetTokens },
+        ...(ctx.stepText ? { partialContent: ctx.stepText } : {}),
+      };
+    }
+  }
+
+  if (ctx.finishReason === 'length') {
+    return {
+      code: 'max_tokens_reached',
+      message:
+        'Model stopped at max_tokens limit — output is truncated. Increase maxOutputTokens or reduce input size.',
+      ...(ctx.stepText ? { partialContent: ctx.stepText } : {}),
+    };
+  }
+
+  return null;
 }
 
 function toToolResultEnvelope(output: unknown, toolName: string, input: unknown): ToolResult {
