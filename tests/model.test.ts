@@ -5,14 +5,12 @@ import type { AgentConfig } from '../src/config/schema.js';
 type ModelConfig = AgentConfig['model'];
 
 describe('buildModel — openai-compatible provider', () => {
-  it('constructs a model using the configured baseUrl and apiKey', () => {
+  it('constructs a model using the configured baseUrl', () => {
     const cfg: ModelConfig = {
       provider: 'openai-compatible',
       name: 'mistral-small-latest',
       baseUrl: 'https://api.mistral.ai/v1',
-      apiKey: 'test-key',
     };
-    // Should not throw — the model object is constructed synchronously
     expect(() => buildModel(cfg)).not.toThrow();
   });
 
@@ -23,7 +21,6 @@ describe('buildModel — openai-compatible provider', () => {
       const cfg: ModelConfig = {
         provider: 'openai-compatible',
         name: 'llama3',
-        apiKey: '',
       };
       expect(() => buildModel(cfg)).not.toThrow();
     } finally {
@@ -32,17 +29,7 @@ describe('buildModel — openai-compatible provider', () => {
     }
   });
 
-  it('allows empty apiKey for unauthenticated endpoints (e.g. Ollama)', () => {
-    const cfg: ModelConfig = {
-      provider: 'openai-compatible',
-      name: 'llama3',
-      baseUrl: 'http://localhost:11434/v1',
-      apiKey: '',
-    };
-    expect(() => buildModel(cfg)).not.toThrow();
-  });
-
-  it('falls back to OPENAI_API_KEY env var when apiKey is not set', () => {
+  it('reads OPENAI_API_KEY from environment', () => {
     const original = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = 'env-key';
     try {

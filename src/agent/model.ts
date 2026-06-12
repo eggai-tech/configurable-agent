@@ -20,7 +20,7 @@ export function buildModel(cfg: AgentConfig['model']): LanguageModel {
     }
     case 'openai-compatible': {
       const baseURL = cfg.baseUrl ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1';
-      const apiKey = cfg.apiKey ?? process.env.OPENAI_API_KEY ?? '';
+      const apiKey = process.env.OPENAI_API_KEY ?? '';
       const compat = createOpenAICompatible({ name: 'openai-compatible', baseURL, apiKey });
       return compat(cfg.name);
     }
