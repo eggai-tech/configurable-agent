@@ -30,6 +30,64 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run test
 
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if changelog is required
+        id: needs-changelog
+        run: |
+          git fetch origin main
+          CHANGED=$(git diff origin/main --name-only)
+          CODE_CHANGED=$(echo "$CHANGED" | grep -E "^(src/|tests/|package\.json)" | grep -v "^CHANGELOG.md" || true)
+          if [ -z "$CODE_CHANGED" ]; then
+            echo "required=false" >> $GITHUB_OUTPUT
+          else
+            echo "required=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check changelog updated
+        if: steps.needs-changelog.outputs.required == 'true'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if echo "$HEAD_REF" | grep -qE '^release/v'; then
+            VERSION=$(echo "$HEAD_REF" | sed 's/release\/v//')
+            if echo "$VERSION" | grep -qE '\-(rc|alpha|beta)\.[0-9]+$'; then
+              UNRELEASED=$(sed -n '/^## \[Unreleased\]/,/^## \[/p' CHANGELOG.md | tail -n +2 | head -n -1)
+              if ! echo "$UNRELEASED" | grep -qE "^### " || ! echo "$UNRELEASED" | grep -qE "^- "; then
+                echo "::error::Prerelease release PR must have entries under [Unreleased] in CHANGELOG.md"
+                exit 1
+              fi
+              exit 0
+            fi
+            if grep -qE "^## \[$VERSION\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md; then
+              exit 0
+            else
+              echo "::error::Release PR must have a version entry in CHANGELOG.md"
+              exit 1
+            fi
+          fi
+          CHANGELOG_DIFF=$(git diff origin/main...HEAD -- CHANGELOG.md)
+          if [ -z "$CHANGELOG_DIFF" ]; then
+            echo "::error::CHANGELOG.md must be updated. Add your changes under [Unreleased]."
+            exit 1
+          fi
+          UNRELEASED=$(sed -n '/^## \[Unreleased\]/,/^## \[/p' CHANGELOG.md | tail -n +2 | head -n -1)
+          if ! echo "$UNRELEASED" | grep -qE "^### "; then
+            echo "::error::Add a category header (### Added, ### Fixed, etc.) under [Unreleased] in CHANGELOG.md"
+            exit 1
+          fi
+          if ! echo "$UNRELEASED" | grep -qE "^- "; then
+            echo "::error::Add at least one entry under [Unreleased] in CHANGELOG.md"
+            exit 1
+          fi
+          echo "Changelog check passed!"
+
   publish:
     needs: test
     runs-on: ubuntu-latest

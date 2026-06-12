@@ -1,0 +1,206 @@
+name: Publish to npm
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.2.0 or 0.2.0-beta.1)'
+        required: true
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/v'))
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      prerelease: ${{ steps.version.outputs.PRERELEASE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$DISPATCH_VERSION"
+          else
+            VERSION=${HEAD_REF#release/v}
+          fi
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta)\.[0-9]+)?$'; then
+            echo "::error::Version '$VERSION' is not a permitted format."
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          if echo "$VERSION" | grep -qE '\-(rc|alpha|beta)\.[0-9]+$'; then
+            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+          else
+            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate version matches package.json
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Version mismatch: input=$VERSION, package.json=$PACKAGE_VERSION"
+            exit 1
+          fi
+
+  build-and-test:
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run ci:lint
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm build
+      - run: pnpm pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: '*.tgz'
+          retention-days: 7
+
+  create-tag:
+    needs: [prepare, build-and-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          TAG="v$VERSION"
+          git fetch origin "+refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            echo "Created and pushed tag: $TAG"
+          fi
+
+  publish-npm:
+    needs: [prepare, build-and-test, create-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@eggai/configurable-agent
+
+    steps:
+      - name: Check if already published
+        id: check
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://registry.npmjs.org/@eggai%2fconfigurable-agent/$VERSION)
+          echo "exists=$([ "$STATUS" = "200" ] && echo true || echo false)" >> $GITHUB_OUTPUT
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.exists == 'false'
+
+      - uses: pnpm/action-setup@v6
+        if: steps.check.outputs.exists == 'false'
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.exists == 'false'
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+        env:
+          NODE_AUTH_TOKEN: ""
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.check.outputs.exists == 'false'
+
+      - run: pnpm build
+        if: steps.check.outputs.exists == 'false'
+
+      - name: Publish to npm
+        if: steps.check.outputs.exists == 'false'
+        env:
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            pnpm publish --no-git-checks --access public --provenance --tag beta
+          else
+            pnpm publish --no-git-checks --access public --provenance
+          fi
+
+      - name: Verify publish
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          echo "Waiting for npm to index the package..."
+          sleep 10
+          npm view @eggai/configurable-agent@$VERSION version
+          echo "Successfully published @eggai/configurable-agent@$VERSION"
+
+  github-release:
+    needs: [prepare, build-and-test, create-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "Release v$VERSION already exists, uploading artifacts."
+            gh release upload "v$VERSION" *.tgz --clobber
+          else
+            PRERELEASE_FLAG=""
+            INSTALL_TAG=""
+            if [ "$PRERELEASE" = "true" ]; then
+              PRERELEASE_FLAG="--prerelease"
+              INSTALL_TAG="@beta"
+            fi
+            printf '%s\n' "## Installation" "" '```bash' "npm install @eggai/configurable-agent$INSTALL_TAG" '```' > /tmp/notes.md
+            gh release create "v$VERSION" *.tgz \
+              --title "v$VERSION" \
+              --notes-file /tmp/notes.md \
+              $PRERELEASE_FLAG
+          fi
