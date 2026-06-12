@@ -1,1 +1,6 @@
+allowBuilds:
+  '@biomejs/biome': true
+  esbuild: true
+  msw: true
+  protobufjs: true
 minimumReleaseAge: 10080
