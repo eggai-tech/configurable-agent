@@ -309,3 +309,86 @@ describe('runAgent — token usage in final event', () => {
     expect(usage?.outputTokens).toBe(10);
   });
 });
+
+describe('runAgent — rate limit and stream error handling', () => {
+  function modelWithHeaders(
+    parts: StreamPart[],
+    headers: Record<string, string>,
+  ): MockLanguageModelV2 {
+    return new MockLanguageModelV2({
+      doStream: async () => ({
+        stream: convertArrayToReadableStream(parts),
+        response: { headers },
+      }),
+    });
+  }
+
+  it('emits rate_limit_tokens error with partialContent when remaining tokens < 5% of limit', async () => {
+    const model = modelWithHeaders(textStream('partial'), {
+      'x-ratelimit-limit-tokens': '30000',
+      'x-ratelimit-remaining-tokens': '100',
+      'x-ratelimit-reset-tokens': '59s',
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('rate_limit_tokens');
+    expect(error.message).toContain('29900/30000');
+    expect(error.message).toContain('59s');
+    expect((error as { partialContent?: string }).partialContent).toBe('partial');
+  });
+
+  it('does not emit rate_limit_tokens when remaining tokens are above threshold', async () => {
+    const model = modelWithHeaders(textStream('done'), {
+      'x-ratelimit-limit-tokens': '30000',
+      'x-ratelimit-remaining-tokens': '5000',
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    expect(events.find((e) => e.type === 'error')).toBeUndefined();
+    expect(events.find((e) => e.type === 'final')).toBeDefined();
+  });
+
+  it('emits stream_error with partialContent when stream errors mid-response', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'partial response' },
+      { type: 'error', error: new Error('connection reset') },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('stream_error');
+    expect((error as { partialContent?: string }).partialContent).toBe('partial response');
+  });
+});

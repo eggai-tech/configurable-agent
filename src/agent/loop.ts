@@ -100,8 +100,12 @@ export async function runAgent(
 
       let stepHasToolCalls = false;
       let stepText = '';
+      let stepResponseHeaders: Record<string, string> = {};
 
       for await (const part of stream.fullStream) {
+        if (part.type === 'finish-step') {
+          stepResponseHeaders = (part.response?.headers ?? {}) as Record<string, string>;
+        }
         switch (part.type) {
           case 'reasoning-delta':
             await emit({ type: 'reasoning', text: part.text });
@@ -142,6 +146,7 @@ export async function runAgent(
               code: 'stream_error',
               message: errorMessage(part.error),
               details: part.error,
+              ...(stepText ? { partialContent: stepText } : {}),
             });
             return;
           default:
@@ -156,6 +161,23 @@ export async function runAgent(
       const stepUsage = await stream.usage;
       totalInputTokens += stepUsage.inputTokens ?? 0;
       totalOutputTokens += stepUsage.outputTokens ?? 0;
+      const remainingTokens = stepResponseHeaders['x-ratelimit-remaining-tokens'];
+      const limitTokens = stepResponseHeaders['x-ratelimit-limit-tokens'];
+      const resetTokens = stepResponseHeaders['x-ratelimit-reset-tokens'];
+      if (remainingTokens !== undefined && limitTokens !== undefined) {
+        const remaining = Number.parseInt(remainingTokens, 10);
+        const limit = Number.parseInt(limitTokens, 10);
+        if (!Number.isNaN(remaining) && !Number.isNaN(limit) && remaining / limit < 0.05) {
+          await emit({
+            type: 'error',
+            code: 'rate_limit_tokens',
+            message: `TPM rate limit exhausted: input consumed ${limit - remaining}/${limit} tokens, leaving only ${remaining} for output${resetTokens ? ` (resets in ${resetTokens})` : ''}. Split the request into smaller batches.`,
+            details: { remaining, limit, resetTokens },
+            ...(stepText ? { partialContent: stepText } : {}),
+          });
+          return;
+        }
+      }
 
       if (isLastStep && stepHasToolCalls) {
         await emit({
