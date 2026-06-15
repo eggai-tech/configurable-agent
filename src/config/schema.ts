@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-export const ModelProvider = z.enum(['anthropic', 'openai', 'google', 'ollama']);
+export const ModelProvider = z.enum([
+  'anthropic',
+  'openai',
+  'google',
+  'ollama',
+  'openai-compatible',
+]);
 export type ModelProvider = z.infer<typeof ModelProvider>;
 
 const JsonSchemaObject = z.record(z.unknown());

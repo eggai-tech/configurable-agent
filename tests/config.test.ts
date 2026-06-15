@@ -194,4 +194,35 @@ model:
     const cfg = loadConfig(path);
     expect(cfg.evals).toBeUndefined();
   });
+
+  it('accepts openai-compatible provider with baseUrl', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "be helpful"
+model:
+  provider: openai-compatible
+  name: mistral-small-latest
+  baseUrl: https://api.mistral.ai/v1
+`,
+    );
+    const cfg = loadConfig(path);
+    expect(cfg.model.provider).toBe('openai-compatible');
+    expect(cfg.model.name).toBe('mistral-small-latest');
+    expect(cfg.model.baseUrl).toBe('https://api.mistral.ai/v1');
+  });
+
+  it('accepts openai-compatible provider without baseUrl (unauthenticated endpoints)', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "be helpful"
+model:
+  provider: openai-compatible
+  name: llama3
+  baseUrl: http://localhost:11434/v1
+`,
+    );
+    const cfg = loadConfig(path);
+    expect(cfg.model.provider).toBe('openai-compatible');
+    expect(cfg.model.baseUrl).toBe('http://localhost:11434/v1');
+  });
 });

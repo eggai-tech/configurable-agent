@@ -48,6 +48,7 @@ describe('writeAgentEvent', () => {
       stopReason: 'stop',
       steps: 3,
       truncated: false,
+      usage: { inputTokens: 0, outputTokens: 0 },
     });
     expect(writes[0]?.event).toBe('final');
     expect(JSON.parse(writes[0]?.data ?? '{}')).toEqual({
@@ -56,6 +57,7 @@ describe('writeAgentEvent', () => {
       stopReason: 'stop',
       steps: 3,
       truncated: false,
+      usage: { inputTokens: 0, outputTokens: 0 },
     });
   });
 });

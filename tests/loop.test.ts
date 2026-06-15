@@ -1,9 +1,10 @@
+import { APICallError } from '@ai-sdk/provider';
 import type { LanguageModelV2CallOptions, LanguageModelV2StreamPart } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 import { jsonSchema } from 'ai';
 import { MockLanguageModelV2, convertArrayToReadableStream } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
-import { type AgentEvent, prepareMessages, runAgent } from '../src/agent/loop.js';
+import { type AgentEvent, diagnoseStep, prepareMessages, runAgent } from '../src/agent/loop.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
@@ -258,5 +259,209 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
 
     // Same tool object was used both times — execute fires once per request.
     expect(execute).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('runAgent — token usage in final event', () => {
+  it('includes inputTokens and outputTokens in the final event', async () => {
+    // textStream emits finish with inputTokens:5, outputTokens:5 per step
+    const { model } = multiStepModel([textStream('done')]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const final = events.find((e) => e.type === 'final');
+    if (final?.type !== 'final') throw new Error('no final event emitted');
+    expect(typeof final.usage.inputTokens).toBe('number');
+    expect(typeof final.usage.outputTokens).toBe('number');
+  });
+
+  it('accumulates usage across multiple steps', async () => {
+    // tool step (inputTokens:5, outputTokens:5) + text step (inputTokens:5, outputTokens:5)
+    const tools = {
+      ping: fakeMcpTool({ content: [{ type: 'text', text: 'pong' }] }),
+    };
+    const { model } = multiStepModel([toolCallStream('ping', {}), textStream('done')]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'ping' }],
+      (e) => void events.push(e),
+      undefined,
+      { model, tools: tools as never },
+    );
+
+    const final = events.find((e) => e.type === 'final');
+    if (final?.type !== 'final') throw new Error('no final event emitted');
+    // 2 steps × 5 tokens each = 10 total for each
+    expect(final.usage.inputTokens).toBe(10);
+    expect(final.usage.outputTokens).toBe(10);
+  });
+});
+
+describe('diagnoseStep', () => {
+  it('returns max_tokens_reached when finishReason is length', () => {
+    const result = diagnoseStep({ finishReason: 'length', stepText: 'truncated' });
+    expect(result?.code).toBe('max_tokens_reached');
+    expect(result?.partialContent).toBe('truncated');
+  });
+
+  it('omits partialContent when stepText is empty', () => {
+    const result = diagnoseStep({ finishReason: 'length', stepText: '' });
+    expect(result?.code).toBe('max_tokens_reached');
+    expect(result?.partialContent).toBeUndefined();
+  });
+
+  it('returns null for a normal stop', () => {
+    const result = diagnoseStep({ finishReason: 'stop', stepText: 'done' });
+    expect(result).toBeNull();
+  });
+});
+
+describe('runAgent — error propagation integration', () => {
+  it('emits rate_limit_tokens when provider returns a 429 APICallError', async () => {
+    const model = new MockLanguageModelV2({
+      doStream: async () => {
+        throw new APICallError({
+          message: 'Rate limit exceeded',
+          url: 'https://api.example.com/v1/chat',
+          requestBodyValues: {},
+          statusCode: 429,
+          responseHeaders: { 'retry-after': '60' },
+          responseBody: '{"error":"rate_limit_exceeded"}',
+          isRetryable: false,
+        });
+      },
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    expect(error?.type).toBe('error');
+    if (error?.type === 'error') {
+      expect(error.code).toBe('rate_limit_tokens');
+      expect(
+        (error.details as { responseHeaders?: Record<string, string> })?.responseHeaders,
+      ).toEqual({ 'retry-after': '60' });
+    }
+  });
+
+  it('emits stream_error with partialContent when stream errors mid-response', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'partial response' },
+      { type: 'error', error: new Error('connection reset') },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('stream_error');
+    expect((error as { partialContent?: string }).partialContent).toBe('partial response');
+  });
+
+  it('emits stream_error when stream part error is a plain object', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'error', error: { code: 'unknown', reason: 'bad' } },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('stream_error');
+    expect(error.message).toContain('unknown');
+  });
+
+  it('emits stream_error with string message when stream part error is a string', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'error', error: 'plain string error' },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('stream_error');
+    expect(error.message).toBe('plain string error');
+  });
+
+  it('emits max_tokens_reached via full loop when finishReason is length', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'cut off' },
+      { type: 'text-end', id: 't1' },
+      {
+        type: 'finish',
+        usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+        finishReason: 'length',
+      },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('max_tokens_reached');
+    expect((error as { partialContent?: string }).partialContent).toBe('cut off');
   });
 });

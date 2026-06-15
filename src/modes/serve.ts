@@ -23,7 +23,7 @@ export async function runServe(): Promise<void> {
   let registry: Awaited<ReturnType<typeof buildMcpRegistry>>;
   try {
     registry = await buildMcpRegistry(config);
-    
+
     logger.info(
       { tools: Object.keys(registry.tools).length, servers: config.mcpTools.length },
       'mcp registry ready',

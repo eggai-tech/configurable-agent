@@ -1,7 +1,9 @@
+import { APICallError } from '@ai-sdk/provider';
 import {
   type FinishReason,
   type LanguageModel,
   type ModelMessage,
+  RetryError,
   type ToolSet,
   generateObject,
   generateText,
@@ -72,6 +74,8 @@ export async function runAgent(
     let finishReason: FinishReason | 'unknown' = 'unknown';
     let lastText = '';
     let stepsRun = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     for (let step = 0; step < maxSteps; step++) {
       stepsRun = step + 1;
@@ -134,14 +138,31 @@ export async function runAgent(
             await emit({ type: 'tool_result', id: part.toolCallId, output: envelope });
             break;
           }
-          case 'error':
-            await emit({
-              type: 'error',
-              code: 'stream_error',
-              message: errorMessage(part.error),
-              details: part.error,
-            });
+          case 'error': {
+            const cause = RetryError.isInstance(part.error) ? part.error.lastError : part.error;
+            if (APICallError.isInstance(cause) && cause.statusCode === 429) {
+              await emit({
+                type: 'error',
+                code: 'rate_limit_tokens',
+                message:
+                  'Provider returned HTTP 429. Possible causes: rate limit, quota exhausted, or plan limit reached. Check details for provider response.',
+                details: {
+                  responseHeaders: cause.responseHeaders,
+                  responseBody: cause.responseBody,
+                },
+                ...(stepText ? { partialContent: stepText } : {}),
+              });
+            } else {
+              await emit({
+                type: 'error',
+                code: 'stream_error',
+                message: errorMessage(part.error),
+                details: part.error,
+                ...(stepText ? { partialContent: stepText } : {}),
+              });
+            }
             return;
+          }
           default:
             break;
         }
@@ -151,6 +172,18 @@ export async function runAgent(
       const response = await stream.response;
       messages = [...messages, ...response.messages];
       finishReason = await stream.finishReason;
+      const stepUsage = await stream.usage;
+      totalInputTokens += stepUsage.inputTokens ?? 0;
+      totalOutputTokens += stepUsage.outputTokens ?? 0;
+
+      const diagnosis = diagnoseStep({
+        finishReason: String(finishReason),
+        stepText,
+      });
+      if (diagnosis) {
+        await emit({ type: 'error', ...diagnosis });
+        return;
+      }
 
       if (isLastStep && stepHasToolCalls) {
         await emit({
@@ -196,6 +229,7 @@ export async function runAgent(
           stopReason: String(finishReason),
           steps: stepsRun,
           truncated: false,
+          usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
         });
         return;
       }
@@ -215,6 +249,29 @@ export async function runAgent(
 export function prepareMessages(config: AgentConfig, incoming: ModelMessage[]): ModelMessage[] {
   const withoutSystem = incoming.filter((m) => m.role !== 'system');
   return [{ role: 'system', content: renderSystemPrompt(config) }, ...withoutSystem];
+}
+
+export interface StepDiagnosis {
+  code: string;
+  message: string;
+  details?: unknown;
+  partialContent?: string;
+}
+
+export function diagnoseStep(ctx: {
+  finishReason: string;
+  stepText: string;
+}): StepDiagnosis | null {
+  if (ctx.finishReason === 'length') {
+    return {
+      code: 'max_tokens_reached',
+      message:
+        'Model stopped at max_tokens limit — output is truncated. Increase maxOutputTokens or reduce input size.',
+      ...(ctx.stepText ? { partialContent: ctx.stepText } : {}),
+    };
+  }
+
+  return null;
 }
 
 function toToolResultEnvelope(output: unknown, toolName: string, input: unknown): ToolResult {
