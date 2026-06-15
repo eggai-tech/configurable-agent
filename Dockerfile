@@ -31,7 +31,7 @@ RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
 COPY package.json pnpm-lock.yaml ./
 COPY pnpm-workspace.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile --prod
+    pnpm install --frozen-lockfile --prod --ignore-scripts
 COPY --from=build /app/dist ./dist
 USER node
 EXPOSE 3000
