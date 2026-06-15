@@ -15,7 +15,8 @@ COPY package.json pnpm-lock.yaml ./
 # supply-chain settings (minimumReleaseAge); copy if present.
 COPY pnpm-workspace.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --ignore-scripts && \
+    pnpm rebuild @biomejs/biome esbuild msw protobufjs
 
 FROM deps AS build
 COPY tsconfig.json tsconfig.build.json ./
