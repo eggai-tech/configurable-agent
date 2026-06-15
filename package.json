@@ -1,6 +1,6 @@
 {
   "name": "@eggai/configurable-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "bin": {
     "configurable-agent": "dist/index.js"
@@ -12,7 +12,9 @@
       "types": "./dist/lib/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "packageManager": "pnpm@11.1.2",
   "engines": {
     "node": ">=22"
