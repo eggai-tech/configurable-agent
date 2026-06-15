@@ -61,6 +61,7 @@ jobs:
       - name: Update package.json version
         run: |
           pnpm version $VERSION --no-git-tag-version
+          pnpm biome format --write package.json
           echo "Updated package.json to version $VERSION"
 
       - name: Update changelog for stable release
