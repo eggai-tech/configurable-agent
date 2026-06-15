@@ -1,3 +1,4 @@
+import { APICallError } from '@ai-sdk/provider';
 import type { LanguageModelV2CallOptions, LanguageModelV2StreamPart } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 import { jsonSchema } from 'ai';
@@ -277,11 +278,8 @@ describe('runAgent — token usage in final event', () => {
 
     const final = events.find((e) => e.type === 'final');
     if (final?.type !== 'final') throw new Error('no final event emitted');
-    expect(final).toHaveProperty('usage');
-    const usage = (final as { usage?: { inputTokens: number; outputTokens: number } }).usage;
-    expect(usage).toBeDefined();
-    expect(typeof usage?.inputTokens).toBe('number');
-    expect(typeof usage?.outputTokens).toBe('number');
+    expect(typeof final.usage.inputTokens).toBe('number');
+    expect(typeof final.usage.outputTokens).toBe('number');
   });
 
   it('accumulates usage across multiple steps', async () => {
@@ -302,87 +300,45 @@ describe('runAgent — token usage in final event', () => {
 
     const final = events.find((e) => e.type === 'final');
     if (final?.type !== 'final') throw new Error('no final event emitted');
-    const usage = (final as { usage?: { inputTokens: number; outputTokens: number } }).usage;
-    expect(usage).toBeDefined();
     // 2 steps × 5 tokens each = 10 total for each
-    expect(usage?.inputTokens).toBe(10);
-    expect(usage?.outputTokens).toBe(10);
+    expect(final.usage.inputTokens).toBe(10);
+    expect(final.usage.outputTokens).toBe(10);
   });
 });
 
 describe('diagnoseStep', () => {
-  const noHeaders = {};
-
-  it('returns rate_limit_tokens when remaining < 5% of limit', () => {
-    const result = diagnoseStep({
-      finishReason: 'stop',
-      stepText: 'partial',
-      responseHeaders: {
-        'x-ratelimit-limit-tokens': '30000',
-        'x-ratelimit-remaining-tokens': '100',
-        'x-ratelimit-reset-tokens': '59s',
-      },
-    });
-    expect(result?.code).toBe('rate_limit_tokens');
-    expect(result?.message).toContain('29900/30000');
-    expect(result?.message).toContain('59s');
-    expect(result?.partialContent).toBe('partial');
-  });
-
-  it('returns null when remaining tokens are above threshold', () => {
-    const result = diagnoseStep({
-      finishReason: 'stop',
-      stepText: '',
-      responseHeaders: {
-        'x-ratelimit-limit-tokens': '30000',
-        'x-ratelimit-remaining-tokens': '5000',
-      },
-    });
-    expect(result).toBeNull();
-  });
-
   it('returns max_tokens_reached when finishReason is length', () => {
-    const result = diagnoseStep({
-      finishReason: 'length',
-      stepText: 'truncated',
-      responseHeaders: noHeaders,
-    });
+    const result = diagnoseStep({ finishReason: 'length', stepText: 'truncated' });
     expect(result?.code).toBe('max_tokens_reached');
     expect(result?.partialContent).toBe('truncated');
   });
 
   it('omits partialContent when stepText is empty', () => {
-    const result = diagnoseStep({
-      finishReason: 'length',
-      stepText: '',
-      responseHeaders: noHeaders,
-    });
+    const result = diagnoseStep({ finishReason: 'length', stepText: '' });
     expect(result?.code).toBe('max_tokens_reached');
     expect(result?.partialContent).toBeUndefined();
   });
 
-  it('returns null for a normal stop with no rate limit headers', () => {
-    const result = diagnoseStep({
-      finishReason: 'stop',
-      stepText: 'done',
-      responseHeaders: noHeaders,
-    });
+  it('returns null for a normal stop', () => {
+    const result = diagnoseStep({ finishReason: 'stop', stepText: 'done' });
     expect(result).toBeNull();
   });
 });
 
 describe('runAgent — error propagation integration', () => {
-  it('emits rate_limit_tokens via full loop when headers indicate exhaustion', async () => {
+  it('emits rate_limit_tokens when provider returns a 429 APICallError', async () => {
     const model = new MockLanguageModelV2({
-      doStream: async () => ({
-        stream: convertArrayToReadableStream(textStream('partial')),
-        response: {
-          headers: {
-            'x-ratelimit-limit-tokens': '30000',
-            'x-ratelimit-remaining-tokens': '100',
-          },
-        },
-      }),
+      doStream: async () => {
+        throw new APICallError({
+          message: 'Rate limit exceeded',
+          url: 'https://api.example.com/v1/chat',
+          requestBodyValues: {},
+          statusCode: 429,
+          responseHeaders: { 'retry-after': '60' },
+          responseBody: '{"error":"rate_limit_exceeded"}',
+          isRetryable: false,
+        });
+      },
     });
 
     const events: AgentEvent[] = [];
@@ -396,7 +352,12 @@ describe('runAgent — error propagation integration', () => {
 
     const error = events.find((e) => e.type === 'error');
     expect(error?.type).toBe('error');
-    if (error?.type === 'error') expect(error.code).toBe('rate_limit_tokens');
+    if (error?.type === 'error') {
+      expect(error.code).toBe('rate_limit_tokens');
+      expect(
+        (error.details as { responseHeaders?: Record<string, string> })?.responseHeaders,
+      ).toEqual({ 'retry-after': '60' });
+    }
   });
 
   it('emits stream_error with partialContent when stream errors mid-response', async () => {
@@ -423,6 +384,54 @@ describe('runAgent — error propagation integration', () => {
     if (error?.type !== 'error') throw new Error('expected error event');
     expect(error.code).toBe('stream_error');
     expect((error as { partialContent?: string }).partialContent).toBe('partial response');
+  });
+
+  it('emits stream_error when stream part error is a plain object', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'error', error: { code: 'unknown', reason: 'bad' } },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('stream_error');
+    expect(error.message).toContain('unknown');
+  });
+
+  it('emits stream_error with string message when stream part error is a string', async () => {
+    const parts: StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'error', error: 'plain string error' },
+    ];
+    const model = new MockLanguageModelV2({
+      doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('stream_error');
+    expect(error.message).toBe('plain string error');
   });
 
   it('emits max_tokens_reached via full loop when finishReason is length', async () => {

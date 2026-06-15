@@ -1,7 +1,9 @@
+import { APICallError } from '@ai-sdk/provider';
 import {
   type FinishReason,
   type LanguageModel,
   type ModelMessage,
+  RetryError,
   type ToolSet,
   generateObject,
   generateText,
@@ -100,12 +102,8 @@ export async function runAgent(
 
       let stepHasToolCalls = false;
       let stepText = '';
-      let stepResponseHeaders: Record<string, string> = {};
 
       for await (const part of stream.fullStream) {
-        if (part.type === 'finish-step') {
-          stepResponseHeaders = (part.response?.headers ?? {}) as Record<string, string>;
-        }
         switch (part.type) {
           case 'reasoning-delta':
             await emit({ type: 'reasoning', text: part.text });
@@ -140,15 +138,31 @@ export async function runAgent(
             await emit({ type: 'tool_result', id: part.toolCallId, output: envelope });
             break;
           }
-          case 'error':
-            await emit({
-              type: 'error',
-              code: 'stream_error',
-              message: errorMessage(part.error),
-              details: part.error,
-              ...(stepText ? { partialContent: stepText } : {}),
-            });
+          case 'error': {
+            const cause = RetryError.isInstance(part.error) ? part.error.lastError : part.error;
+            if (APICallError.isInstance(cause) && cause.statusCode === 429) {
+              await emit({
+                type: 'error',
+                code: 'rate_limit_tokens',
+                message:
+                  'Provider returned HTTP 429. Possible causes: rate limit, quota exhausted, or plan limit reached. Check details for provider response.',
+                details: {
+                  responseHeaders: cause.responseHeaders,
+                  responseBody: cause.responseBody,
+                },
+                ...(stepText ? { partialContent: stepText } : {}),
+              });
+            } else {
+              await emit({
+                type: 'error',
+                code: 'stream_error',
+                message: errorMessage(part.error),
+                details: part.error,
+                ...(stepText ? { partialContent: stepText } : {}),
+              });
+            }
             return;
+          }
           default:
             break;
         }
@@ -165,7 +179,6 @@ export async function runAgent(
       const diagnosis = diagnoseStep({
         finishReason: String(finishReason),
         stepText,
-        responseHeaders: stepResponseHeaders,
       });
       if (diagnosis) {
         await emit({ type: 'error', ...diagnosis });
@@ -248,24 +261,7 @@ export interface StepDiagnosis {
 export function diagnoseStep(ctx: {
   finishReason: string;
   stepText: string;
-  responseHeaders: Record<string, string>;
 }): StepDiagnosis | null {
-  const remainingRaw = ctx.responseHeaders['x-ratelimit-remaining-tokens'];
-  const limitRaw = ctx.responseHeaders['x-ratelimit-limit-tokens'];
-  const resetTokens = ctx.responseHeaders['x-ratelimit-reset-tokens'];
-  if (remainingRaw !== undefined && limitRaw !== undefined) {
-    const remaining = Number.parseInt(remainingRaw, 10);
-    const limit = Number.parseInt(limitRaw, 10);
-    if (!Number.isNaN(remaining) && !Number.isNaN(limit) && remaining / limit < 0.05) {
-      return {
-        code: 'rate_limit_tokens',
-        message: `TPM rate limit exhausted: input consumed ${limit - remaining}/${limit} tokens, leaving only ${remaining} for output${resetTokens ? ` (resets in ${resetTokens})` : ''}. Split the request into smaller batches.`,
-        details: { remaining, limit, resetTokens },
-        ...(ctx.stepText ? { partialContent: ctx.stepText } : {}),
-      };
-    }
-  }
-
   if (ctx.finishReason === 'length') {
     return {
       code: 'max_tokens_reached',
