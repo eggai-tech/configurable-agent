@@ -1,8 +1,8 @@
 import { APICallError } from '@ai-sdk/provider';
-import type { LanguageModelV2CallOptions, LanguageModelV2StreamPart } from '@ai-sdk/provider';
+import type { LanguageModelV3CallOptions, LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 import { jsonSchema } from 'ai';
-import { MockLanguageModelV2, convertArrayToReadableStream } from 'ai/test';
+import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
 import { type AgentEvent, diagnoseStep, prepareMessages, runAgent } from '../src/agent/loop.js';
 import type { AgentConfig } from '../src/config/schema.js';
@@ -79,7 +79,12 @@ describe('prepareMessages', () => {
   });
 });
 
-type StreamPart = LanguageModelV2StreamPart;
+type StreamPart = LanguageModelV3StreamPart;
+
+const V3_USAGE = {
+  inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 5, text: 5, reasoning: 0 },
+} as const;
 
 function toolCallStream(toolName: string, input: Record<string, unknown>): StreamPart[] {
   return [
@@ -92,8 +97,8 @@ function toolCallStream(toolName: string, input: Record<string, unknown>): Strea
     },
     {
       type: 'finish',
-      usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
-      finishReason: 'tool-calls',
+      usage: V3_USAGE,
+      finishReason: { unified: 'tool-calls', raw: 'tool-calls' },
     },
   ];
 }
@@ -106,8 +111,8 @@ function textStream(text: string): StreamPart[] {
     { type: 'text-end', id: 't1' },
     {
       type: 'finish',
-      usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
-      finishReason: 'stop',
+      usage: V3_USAGE,
+      finishReason: { unified: 'stop', raw: 'stop' },
     },
   ];
 }
@@ -128,19 +133,19 @@ function fakeMcpTool(executeOutput: unknown) {
 }
 
 interface DoStreamCall {
-  prompt: LanguageModelV2CallOptions['prompt'];
+  prompt: LanguageModelV3CallOptions['prompt'];
 }
 
 function multiStepModel(
   streams: StreamPart[][],
   opts: { summarizeText?: string } = {},
 ): {
-  model: MockLanguageModelV2;
+  model: MockLanguageModelV3;
   calls: DoStreamCall[];
 } {
   const calls: DoStreamCall[] = [];
   let idx = 0;
-  const model = new MockLanguageModelV2({
+  const model = new MockLanguageModelV3({
     doStream: async (callOpts) => {
       calls.push({ prompt: callOpts.prompt });
       const parts = streams[idx++];
@@ -152,8 +157,8 @@ function multiStepModel(
     // SUMMARY text routed back into the next step's prompt.
     doGenerate: async () => ({
       content: [{ type: 'text', text: opts.summarizeText ?? 'STUB-SUMMARY' }],
-      finishReason: 'stop' as const,
-      usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+      finishReason: { unified: 'stop', raw: 'stop' } as const,
+      usage: V3_USAGE,
       warnings: [],
     }),
   });
@@ -327,7 +332,7 @@ describe('diagnoseStep', () => {
 
 describe('runAgent — error propagation integration', () => {
   it('emits rate_limit_tokens when provider returns a 429 APICallError', async () => {
-    const model = new MockLanguageModelV2({
+    const model = new MockLanguageModelV3({
       doStream: async () => {
         throw new APICallError({
           message: 'Rate limit exceeded',
@@ -367,7 +372,7 @@ describe('runAgent — error propagation integration', () => {
       { type: 'text-delta', id: 't1', delta: 'partial response' },
       { type: 'error', error: new Error('connection reset') },
     ];
-    const model = new MockLanguageModelV2({
+    const model = new MockLanguageModelV3({
       doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
     });
 
@@ -391,7 +396,7 @@ describe('runAgent — error propagation integration', () => {
       { type: 'stream-start', warnings: [] },
       { type: 'error', error: { code: 'unknown', reason: 'bad' } },
     ];
-    const model = new MockLanguageModelV2({
+    const model = new MockLanguageModelV3({
       doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
     });
 
@@ -415,7 +420,7 @@ describe('runAgent — error propagation integration', () => {
       { type: 'stream-start', warnings: [] },
       { type: 'error', error: 'plain string error' },
     ];
-    const model = new MockLanguageModelV2({
+    const model = new MockLanguageModelV3({
       doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
     });
 
@@ -442,11 +447,11 @@ describe('runAgent — error propagation integration', () => {
       { type: 'text-end', id: 't1' },
       {
         type: 'finish',
-        usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
-        finishReason: 'length',
+        usage: V3_USAGE,
+        finishReason: { unified: 'length', raw: 'length' },
       },
     ];
-    const model = new MockLanguageModelV2({
+    const model = new MockLanguageModelV3({
       doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
     });
 

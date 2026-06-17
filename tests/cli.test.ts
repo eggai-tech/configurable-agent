@@ -2,13 +2,18 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import type { LanguageModelV2StreamPart } from '@ai-sdk/provider';
-import { MockLanguageModelV2, convertArrayToReadableStream } from 'ai/test';
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseTraceparent } from '../src/cli/stdio.js';
 import { runCli } from '../src/modes/run.js';
 
-type StreamPart = LanguageModelV2StreamPart;
+type StreamPart = LanguageModelV3StreamPart;
+
+const V3_USAGE = {
+  inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 5, text: 5, reasoning: 0 },
+} as const;
 
 const BASE_YAML = `
 systemPrompt: SYSTEM
@@ -27,15 +32,15 @@ function textStream(text: string): StreamPart[] {
     { type: 'text-end', id: 't1' },
     {
       type: 'finish',
-      usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
-      finishReason: 'stop',
+      usage: V3_USAGE,
+      finishReason: { unified: 'stop', raw: 'stop' },
     },
   ];
 }
 
-function mockModel(streams: Array<StreamPart[]>): MockLanguageModelV2 {
+function mockModel(streams: Array<StreamPart[]>): MockLanguageModelV3 {
   let idx = 0;
-  return new MockLanguageModelV2({
+  return new MockLanguageModelV3({
     doStream: async () => {
       const parts = streams[idx++];
       if (!parts) throw new Error(`mock model: no stream queued for call #${idx}`);
@@ -54,7 +59,7 @@ async function invoke(opts: {
   configYaml: string;
   stdinBody: string;
   argv?: string[];
-  modelOverride?: MockLanguageModelV2;
+  modelOverride?: MockLanguageModelV3;
   env?: NodeJS.ProcessEnv;
   configPath?: string;
   dir: string;
