@@ -153,7 +153,9 @@ function wrapTool(name: string, t: Tool, ctx: ToolSummaryRuntime): Tool {
       const envelope = mcpResultToEnvelope(raw, name, input, Date.now() - start);
       return maybeSummarizeToolOutput(envelope, name, ctx);
     },
-    toModelOutput(output: unknown) {
+    // AI SDK v6 invokes toModelOutput with { toolCallId, input, output }, where
+    // `output` is the value returned by execute() (our ToolResult envelope).
+    toModelOutput({ output }: { output: unknown }) {
       const env = output as ToolResult;
       const text = typeof env?.content === 'string' ? env.content : safeJson(env);
       if (env?.status === 'error') {

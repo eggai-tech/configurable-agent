@@ -307,6 +307,37 @@ describe('wrapToolsWithSummarization', () => {
 
     expect(out.status).toBe('error');
   });
+
+  // AI SDK v6 calls toModelOutput with { toolCallId, input, output } — `output`
+  // is the execute() return value (our envelope). Reading the envelope from the
+  // wrong place yields { value: undefined }, which fails prompt validation on
+  // the next step.
+  it('toModelOutput unwraps the v6 { output } envelope into clean text', async () => {
+    const tool = {
+      description: 'echo',
+      inputSchema: {},
+      type: 'dynamic',
+      async execute() {
+        return { content: [{ type: 'text', text: 'clean body' }] };
+      },
+    };
+    const wrapped = wrapToolsWithSummarization({ echo: tool } as never, {
+      config: baseConfig(),
+      summarize: vi.fn(),
+    });
+
+    const w = wrapped.echo as unknown as {
+      execute: (i: unknown, o: unknown) => Promise<unknown>;
+      toModelOutput: (opts: { output: unknown }) => { type: string; value: string };
+    };
+    const envelope = await w.execute({}, { toolCallId: 'x', messages: [] });
+
+    const succeeded = w.toModelOutput({ output: envelope });
+    expect(succeeded).toEqual({ type: 'text', value: 'clean body' });
+
+    const errored = w.toModelOutput({ output: { status: 'error', content: 'boom' } });
+    expect(errored).toEqual({ type: 'error-text', value: 'boom' });
+  });
 });
 
 describe('normalizeJsonSchemaDraft2020', () => {
