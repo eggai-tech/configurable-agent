@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildMcpRegistry, wrapToolsWithSummarization } from '../src/agent/tools/mcp.js';
+import {
+  buildMcpRegistry,
+  normalizeJsonSchemaDraft2020,
+  wrapToolsWithSummarization,
+} from '../src/agent/tools/mcp.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 // Mock the AI SDK MCP modules so tests never spawn child processes or open
@@ -302,5 +306,59 @@ describe('wrapToolsWithSummarization', () => {
     ).execute({}, { toolCallId: 'x', messages: [] })) as { status: string };
 
     expect(out.status).toBe('error');
+  });
+});
+
+describe('normalizeJsonSchemaDraft2020', () => {
+  it('converts draft-04 boolean exclusiveMinimum to the 2020-12 numeric form', () => {
+    // This is the exact shape Harvest's update_time_entry tool ships, which the
+    // Anthropic API rejects as invalid draft 2020-12.
+    const result = normalizeJsonSchemaDraft2020({
+      type: 'object',
+      properties: {
+        hours: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      },
+    }) as { properties: { hours: Record<string, unknown> } };
+
+    expect(result.properties.hours).toEqual({ type: 'number', exclusiveMinimum: 0 });
+  });
+
+  it('drops exclusiveMaximum:false and keeps the plain bound', () => {
+    const result = normalizeJsonSchemaDraft2020({
+      type: 'number',
+      maximum: 10,
+      exclusiveMaximum: false,
+    });
+    expect(result).toEqual({ type: 'number', maximum: 10 });
+  });
+
+  it('recurses into nested schemas and arrays ($defs, items)', () => {
+    const result = normalizeJsonSchemaDraft2020({
+      $defs: {
+        amount: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      },
+      items: [{ type: 'integer', minimum: 1, exclusiveMinimum: true }],
+    }) as {
+      $defs: { amount: Record<string, unknown> };
+      items: Array<Record<string, unknown>>;
+    };
+    expect(result.$defs.amount).toEqual({ type: 'number', exclusiveMinimum: 0 });
+    expect(result.items[0]).toEqual({ type: 'integer', exclusiveMinimum: 1 });
+  });
+
+  it('leaves already-numeric exclusive bounds and unrelated keywords untouched', () => {
+    const schema = {
+      type: 'number',
+      exclusiveMinimum: 5,
+      description: 'keep me',
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+    };
+    expect(normalizeJsonSchemaDraft2020(schema)).toEqual(schema);
+  });
+
+  it('does not mutate the input object', () => {
+    const input = { type: 'number', minimum: 0, exclusiveMinimum: true };
+    normalizeJsonSchemaDraft2020(input);
+    expect(input).toEqual({ type: 'number', minimum: 0, exclusiveMinimum: true });
   });
 });

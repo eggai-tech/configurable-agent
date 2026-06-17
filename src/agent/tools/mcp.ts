@@ -1,7 +1,7 @@
 import { experimental_createMCPClient as createMCPClient } from '@ai-sdk/mcp';
 import type { experimental_MCPClient as MCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
-import type { Tool, ToolSet } from 'ai';
+import { type Tool, type ToolSet, jsonSchema } from 'ai';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
 import type { ToolResult } from '../events.js';
 import { type ToolSummaryRuntime, maybeSummarizeToolOutput } from '../safety/tool-summary.js';
@@ -25,6 +25,7 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
       const client = await createClientForServer(server);
       clients.push(client);
       const serverTools = (await client.tools()) as Record<string, Tool>;
+      normalizeToolSchemas(serverTools);
       for (const toolName of Object.keys(serverTools)) {
         if (Object.prototype.hasOwnProperty.call(allTools, toolName)) {
           throw new Error(
@@ -67,6 +68,58 @@ async function createClientForServer(server: McpServerConfig): Promise<MCPClient
 
 async function closeAll(clients: MCPClient[]): Promise<void> {
   await Promise.allSettled(clients.map((c) => c.close()));
+}
+
+/**
+ * Some MCP servers ship tool input schemas using legacy JSON Schema idioms
+ * (e.g. draft-04 boolean `exclusiveMinimum`). The Anthropic API validates tool
+ * `input_schema` strictly against draft 2020-12 and rejects the whole request
+ * if any tool is non-conformant. We rewrite each tool's raw schema in place so a
+ * single misbehaving server tool cannot take down every /invoke call.
+ */
+function normalizeToolSchemas(tools: Record<string, Tool>): void {
+  for (const t of Object.values(tools)) {
+    const input = (t as { inputSchema?: { jsonSchema?: unknown } }).inputSchema;
+    if (input && typeof input === 'object' && 'jsonSchema' in input) {
+      (t as { inputSchema: unknown }).inputSchema = jsonSchema(
+        normalizeJsonSchemaDraft2020(input.jsonSchema) as Parameters<typeof jsonSchema>[0],
+      );
+    }
+  }
+}
+
+/**
+ * Recursively coerce a JSON Schema to draft 2020-12. Currently converts the
+ * draft-04 boolean form of `exclusiveMinimum`/`exclusiveMaximum` to the numeric
+ * 2020-12 form. Returns a new object; the input is not mutated.
+ */
+export function normalizeJsonSchemaDraft2020(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map(normalizeJsonSchemaDraft2020);
+  }
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    out[key] = normalizeJsonSchemaDraft2020(value);
+  }
+  for (const [bound, exclusive] of [
+    ['minimum', 'exclusiveMinimum'],
+    ['maximum', 'exclusiveMaximum'],
+  ] as const) {
+    if (typeof out[exclusive] === 'boolean') {
+      // draft-04: { minimum: N, exclusiveMinimum: true } -> 2020-12: { exclusiveMinimum: N }
+      if (out[exclusive] === true && typeof out[bound] === 'number') {
+        out[exclusive] = out[bound];
+        delete out[bound];
+      } else {
+        // exclusiveMinimum: false (or no numeric bound) is just a plain bound
+        delete out[exclusive];
+      }
+    }
+  }
+  return out;
 }
 
 /**
