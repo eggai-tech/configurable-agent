@@ -1,0 +1,55 @@
+systemPrompt: |
+  You are an agent that is processing freelancers invoices.
+  
+  Use the tools available to you to answer the user's question. 
+  When you are ready to answer, produce a concise response.
+
+  Today is {{today}} (current time: {{now}}). You are running in {{cwd}}.
+
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+  temperature: 0
+
+agent:
+  maxSteps: 10
+
+mcpTools:
+  - name: harvest
+    transport: http
+    url: https://api.harvestapp.com/mcp
+    headers:
+      Harvest-Account-ID: "2029314"
+      Authorization: "Bearer ${HARVEST_ACCESS_TOKEN}"
+      User-Agent: "configurable-agent"
+
+safety:
+  compaction:
+    triggerTokens: 100000
+    keepRecentMessages: 6
+  toolOutput:
+    triggerTokens: 4000
+    headChars: 500
+    tailChars: 500
+
+output:
+  structured: true
+  schema:
+    type: object
+    properties:
+      invoice:
+        type: object
+        properties:
+          amount: { type: number }
+          valid: { type: boolean }  
+          timesheet: 
+            type: array
+            items:
+              type: object
+              properties:
+                date: { type: string, format: date }
+                hours: { type: number }
+              required: [date, hours]
+        required: [amount, valid, timesheet]
+      report: { type: string }
+    required: [invoice, report]
