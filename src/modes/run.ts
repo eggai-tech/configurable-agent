@@ -139,12 +139,14 @@ async function executeRun(
 
 class EventCollector {
   private finalText: string | undefined;
+  private structured: unknown;
   private errorMessage: string | undefined;
 
   collect(event: AgentEvent): void {
     switch (event.type) {
       case 'final':
         this.finalText = event.content;
+        this.structured = event.structured;
         break;
       case 'error':
         if (this.errorMessage === undefined) this.errorMessage = event.message;
@@ -158,6 +160,7 @@ class EventCollector {
     return {
       ok: this.finalText !== undefined && this.errorMessage === undefined,
       finalText: this.finalText ?? '',
+      ...(this.structured !== undefined ? { structured: this.structured } : {}),
       error: this.errorMessage ?? null,
     };
   }
