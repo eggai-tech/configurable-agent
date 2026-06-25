@@ -5,9 +5,9 @@
 // token scoped to the MCP resource server, then verifies it with an MCP
 // `initialize` call.
 
+import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
 
 const CLIENT_ID = process.env.HARVEST_CLIENT_ID;
 const CLIENT_SECRET = process.env.HARVEST_CLIENT_SECRET;
@@ -123,7 +123,9 @@ function waitForCode() {
 
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       if (err) {
-        res.end(`<h1>Authorization error</h1><pre>${err}: ${url.searchParams.get('error_description') ?? ''}</pre>`);
+        res.end(
+          `<h1>Authorization error</h1><pre>${err}: ${url.searchParams.get('error_description') ?? ''}</pre>`,
+        );
         server.close();
         reject(new Error(`authorize error: ${err}`));
         return;
@@ -145,7 +147,7 @@ function waitForCode() {
       const authUrl = buildAuthorizeUrl();
       console.log(`\nListening on ${REDIRECT_URI} for the OAuth redirect.`);
       console.log('\nOpen this URL in your browser (attempting to open automatically):\n');
-      console.log(authUrl + '\n');
+      console.log(`${authUrl}\n`);
       openBrowser(authUrl);
     });
   });
@@ -163,7 +165,9 @@ async function main() {
   console.log(`access_token:  ${token.access_token}`);
   console.log(`refresh_token: ${token.refresh_token ?? '(none)'}`);
   console.log(`token_type:    ${token.token_type ?? '(n/a)'}`);
-  console.log(`expires_in:    ${token.expires_in ?? '(n/a)'}${token.expires_in ? ` (~${Math.round(token.expires_in / 3600)}h)` : ''}`);
+  console.log(
+    `expires_in:    ${token.expires_in ?? '(n/a)'}${token.expires_in ? ` (~${Math.round(token.expires_in / 3600)}h)` : ''}`,
+  );
   console.log(`scope:         ${token.scope ?? '(none)'}`);
   console.log(`account_id:    ${accountId ?? '(not found in scope)'}`);
 
