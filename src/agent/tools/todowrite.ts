@@ -58,7 +58,9 @@ export function createTodoWriteTool(store: TodoStore): Tool {
 
   return {
     ...base,
-    toModelOutput(output: unknown) {
+    // AI SDK v6 invokes toModelOutput with { toolCallId, input, output }, where
+    // `output` is the value returned by execute() — not the value itself.
+    toModelOutput({ output }: { output: unknown }) {
       const env = output as ToolResult;
       if (env?.status === 'error') {
         return { type: 'error-text', value: env.content } as const;

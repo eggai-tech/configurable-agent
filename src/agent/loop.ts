@@ -110,7 +110,12 @@ export async function runAgent(
             break;
           case 'text-delta':
             stepText += part.text;
-            await emit({ type: 'content_delta', text: part.text });
+            // In structured mode the model's prose is only an intermediate that
+            // feeds the generateObject pass — never the deliverable, so don't
+            // stream it to the client.
+            if (!config.output.structured) {
+              await emit({ type: 'content_delta', text: part.text });
+            }
             break;
           case 'tool-call':
             stepHasToolCalls = true;
@@ -202,7 +207,14 @@ export async function runAgent(
           try {
             const { object } = await generateObject({
               model,
-              messages,
+              messages: [
+                ...messages,
+                {
+                  role: 'user',
+                  content:
+                    'Format the answer you just gave as a JSON object matching the required schema.',
+                },
+              ],
               schema: jsonSchema(config.output.schema),
               abortSignal,
               experimental_telemetry: {
@@ -224,7 +236,7 @@ export async function runAgent(
 
         await emit({
           type: 'final',
-          content: lastText,
+          content: structured !== undefined ? '' : lastText,
           ...(structured !== undefined ? { structured } : {}),
           stopReason: String(finishReason),
           steps: stepsRun,

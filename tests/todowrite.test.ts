@@ -32,13 +32,17 @@ describe('createTodoWriteTool', () => {
     expect(store.todos).toHaveLength(0);
   });
 
+  // AI SDK v6 calls toModelOutput with { toolCallId, input, output }, where
+  // `output` is the execute() return value (our ToolResult envelope).
   it('toModelOutput returns text for succeeded results', () => {
     const tool = createTodoWriteTool(createTodoStore());
     const toModelOutput = (
-      tool as unknown as { toModelOutput: (output: unknown) => { type: string; value: string } }
+      tool as unknown as {
+        toModelOutput: (opts: { output: unknown }) => { type: string; value: string };
+      }
     ).toModelOutput;
 
-    const out = toModelOutput({ status: 'succeeded', content: '{"todos":[]}' });
+    const out = toModelOutput({ output: { status: 'succeeded', content: '{"todos":[]}' } });
     expect(out.type).toBe('text');
     expect(out.value).toBe('{"todos":[]}');
   });
@@ -46,10 +50,12 @@ describe('createTodoWriteTool', () => {
   it('toModelOutput returns error-text for error results', () => {
     const tool = createTodoWriteTool(createTodoStore());
     const toModelOutput = (
-      tool as unknown as { toModelOutput: (output: unknown) => { type: string; value: string } }
+      tool as unknown as {
+        toModelOutput: (opts: { output: unknown }) => { type: string; value: string };
+      }
     ).toModelOutput;
 
-    const out = toModelOutput({ status: 'error', content: 'something went wrong' });
+    const out = toModelOutput({ output: { status: 'error', content: 'something went wrong' } });
     expect(out.type).toBe('error-text');
     expect(out.value).toBe('something went wrong');
   });

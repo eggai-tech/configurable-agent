@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildMcpRegistry, wrapToolsWithSummarization } from '../src/agent/tools/mcp.js';
+import {
+  buildMcpRegistry,
+  normalizeJsonSchemaDraft2020,
+  wrapToolsWithSummarization,
+} from '../src/agent/tools/mcp.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 // Mock the AI SDK MCP modules so tests never spawn child processes or open
@@ -302,5 +306,90 @@ describe('wrapToolsWithSummarization', () => {
     ).execute({}, { toolCallId: 'x', messages: [] })) as { status: string };
 
     expect(out.status).toBe('error');
+  });
+
+  // AI SDK v6 calls toModelOutput with { toolCallId, input, output } — `output`
+  // is the execute() return value (our envelope). Reading the envelope from the
+  // wrong place yields { value: undefined }, which fails prompt validation on
+  // the next step.
+  it('toModelOutput unwraps the v6 { output } envelope into clean text', async () => {
+    const tool = {
+      description: 'echo',
+      inputSchema: {},
+      type: 'dynamic',
+      async execute() {
+        return { content: [{ type: 'text', text: 'clean body' }] };
+      },
+    };
+    const wrapped = wrapToolsWithSummarization({ echo: tool } as never, {
+      config: baseConfig(),
+      summarize: vi.fn(),
+    });
+
+    const w = wrapped.echo as unknown as {
+      execute: (i: unknown, o: unknown) => Promise<unknown>;
+      toModelOutput: (opts: { output: unknown }) => { type: string; value: string };
+    };
+    const envelope = await w.execute({}, { toolCallId: 'x', messages: [] });
+
+    const succeeded = w.toModelOutput({ output: envelope });
+    expect(succeeded).toEqual({ type: 'text', value: 'clean body' });
+
+    const errored = w.toModelOutput({ output: { status: 'error', content: 'boom' } });
+    expect(errored).toEqual({ type: 'error-text', value: 'boom' });
+  });
+});
+
+describe('normalizeJsonSchemaDraft2020', () => {
+  it('converts draft-04 boolean exclusiveMinimum to the 2020-12 numeric form', () => {
+    // This is the exact shape Harvest's update_time_entry tool ships, which the
+    // Anthropic API rejects as invalid draft 2020-12.
+    const result = normalizeJsonSchemaDraft2020({
+      type: 'object',
+      properties: {
+        hours: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      },
+    }) as { properties: { hours: Record<string, unknown> } };
+
+    expect(result.properties.hours).toEqual({ type: 'number', exclusiveMinimum: 0 });
+  });
+
+  it('drops exclusiveMaximum:false and keeps the plain bound', () => {
+    const result = normalizeJsonSchemaDraft2020({
+      type: 'number',
+      maximum: 10,
+      exclusiveMaximum: false,
+    });
+    expect(result).toEqual({ type: 'number', maximum: 10 });
+  });
+
+  it('recurses into nested schemas and arrays ($defs, items)', () => {
+    const result = normalizeJsonSchemaDraft2020({
+      $defs: {
+        amount: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      },
+      items: [{ type: 'integer', minimum: 1, exclusiveMinimum: true }],
+    }) as {
+      $defs: { amount: Record<string, unknown> };
+      items: Array<Record<string, unknown>>;
+    };
+    expect(result.$defs.amount).toEqual({ type: 'number', exclusiveMinimum: 0 });
+    expect(result.items[0]).toEqual({ type: 'integer', exclusiveMinimum: 1 });
+  });
+
+  it('leaves already-numeric exclusive bounds and unrelated keywords untouched', () => {
+    const schema = {
+      type: 'number',
+      exclusiveMinimum: 5,
+      description: 'keep me',
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+    };
+    expect(normalizeJsonSchemaDraft2020(schema)).toEqual(schema);
+  });
+
+  it('does not mutate the input object', () => {
+    const input = { type: 'number', minimum: 0, exclusiveMinimum: true };
+    normalizeJsonSchemaDraft2020(input);
+    expect(input).toEqual({ type: 'number', minimum: 0, exclusiveMinimum: true });
   });
 });

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Structured output support for the agentic loop
+- Harvest MCP integration example (`examples/harvest/`) with config and auth docs
+
+### Changed
+- Upgraded `ai` SDK family to latest majors (v6)
+
+### Fixed
+- `toModelOutput` updated for the AI SDK v6 tool call signature
+- MCP tool schemas normalized to JSON Schema draft 2020-12
+
 ## [0.2.1] - 2026-06-15
 
 ### Fixed

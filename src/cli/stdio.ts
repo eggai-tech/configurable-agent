@@ -32,6 +32,7 @@ export function parseTraceparent(raw: string | undefined): SpanContext | null {
 export interface RunRecord {
   ok: boolean;
   finalText: string;
+  structured?: unknown;
   error: string | null;
 }
 
