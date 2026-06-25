@@ -274,7 +274,7 @@ mcpTools:
     transport: http
     url: https://api.harvestapp.com/mcp
     headers:
-      Harvest-Account-ID: "2029314"
+      Harvest-Account-ID: "${HARVEST_ACCOUNT_ID}"
       Authorization: "Bearer ${HARVEST_ACCESS_TOKEN}"
       User-Agent: "configurable-agent"
 
