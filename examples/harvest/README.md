@@ -33,9 +33,9 @@ non-empty placeholder (the mock ignores auth).
 ### Run the mock
 
 ```
-node scripts/harvest-mock.mjs
+node examples/harvest/harvest-mock.mjs
 # or with a different scenario / port:
-HARVEST_FIXTURE=examples/harvest/scenario.json PORT=8765 node scripts/harvest-mock.mjs
+HARVEST_FIXTURE=examples/harvest/scenario.json PORT=8765 node examples/harvest/harvest-mock.mjs
 ```
 
 It serves `list_users`, `list_projects`, `list_time_entries` from a JSON fixture
@@ -59,9 +59,9 @@ Capture the agent's SSE output (the `event: tool_call` / `event: tool_result`
 lines) from a run against the real Harvest, then turn it into a fixture:
 
 ```
-node scripts/harvest-record.mjs run.sse > examples/harvest/scenario.json
+node examples/harvest/harvest-record.mjs run.sse > examples/harvest/scenario.json
 # or from the clipboard:
-pbpaste | node scripts/harvest-record.mjs > examples/harvest/scenario.json
+pbpaste | node examples/harvest/harvest-record.mjs > examples/harvest/scenario.json
 ```
 
 It extracts the data returned by the Harvest tools, de-duplicates by id, and (if

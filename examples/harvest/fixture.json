@@ -1,5 +1,5 @@
 {
-  "_comment": "Default scenario for the Harvest MCP mock (scripts/harvest-mock.mjs). Built from a real agent SSE run for May 2026. NOTE: the real run returned 0 users from list_users; here `users` is populated with Gianpaolo so the invoice-validation prompt can match the freelancer by first name. Edit this file (or generate a new one with scripts/harvest-record.mjs) to build other scenarios. The mock re-reads it on every request, so changes take effect without a restart.",
+  "_comment": "Default scenario for the Harvest MCP mock (examples/harvest/harvest-mock.mjs). Built from a real agent SSE run for May 2026. NOTE: the real run returned 0 users from list_users; here `users` is populated with Gianpaolo so the invoice-validation prompt can match the freelancer by first name. Edit this file (or generate a new one with examples/harvest/harvest-record.mjs) to build other scenarios. The mock re-reads it on every request, so changes take effect without a restart.",
   "users": [
     {
       "id": 5468895,
