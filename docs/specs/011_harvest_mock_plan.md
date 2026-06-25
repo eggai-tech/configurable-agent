@@ -29,7 +29,7 @@ that invoice-validation scenarios can be exercised without hitting Harvest.
 
 ## Deliverables
 
-1. **`scripts/harvest-mock.mjs`** — zero-dependency `node:http` Streamable-HTTP MCP
+1. **`examples/harvest/harvest-mock.mjs`** — zero-dependency `node:http` Streamable-HTTP MCP
    server. Implements `initialize`, `notifications/*`, `ping`, `tools/list`,
    `tools/call`. Tools: `list_users`, `list_projects`, `list_time_entries`, with the
    real filtering semantics:
@@ -47,7 +47,7 @@ that invoice-validation scenarios can be exercised without hitting Harvest.
    list (the real run returned 0 users, but a populated list is the more useful
    default — documented in the file's `_comment`).
 
-3. **`scripts/harvest-record.mjs`** — SSE-dump → fixture generator. Reads a file (or
+3. **`examples/harvest/harvest-record.mjs`** — SSE-dump → fixture generator. Reads a file (or
    stdin) of `event: tool_call` / `event: tool_result` lines, extracts
    `users`/`projects`/`time_entries` from the recorded results, de-duplicates by `id`,
    and writes a fixture. If `list_users` recorded nothing, it derives `users` from the
