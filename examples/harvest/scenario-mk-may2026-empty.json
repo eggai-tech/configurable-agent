@@ -1,0 +1,57 @@
+{
+  "_comment": "Empty-timesheet scenario for invoice 2026-041 (MK Software Consulting, Marta, May 2026). The freelancer (Marta) and the ORION/ATLAS/HERMES projects exist, but Harvest has NO time entries for May 2026. Per the prompt's Step 3 this triggers the Mon-Fri 8h/day fallback estimate, with a note that Harvest has no data for this person. Use with: HARVEST_FIXTURE=examples/harvest/scenario-mk-may2026-empty.json node examples/harvest/harvest-mock.mjs.",
+  "users": [
+    {
+      "id": 5500001,
+      "first_name": "Marta",
+      "last_name": "Kowalska",
+      "name": "Marta Kowalska",
+      "email": "marta@mkconsulting.pl",
+      "is_active": true,
+      "is_contractor": true,
+      "timezone": "Europe/Warsaw"
+    }
+  ],
+  "projects": [
+    {
+      "id": 51000001,
+      "name": "Project ORION",
+      "client_id": 16564087,
+      "client_name": "EggAI",
+      "code": "ORION",
+      "is_active": true,
+      "is_billable": true,
+      "is_fixed_fee": false,
+      "starts_on": null,
+      "ends_on": null,
+      "updated_at": "2026-04-30T10:00:00Z"
+    },
+    {
+      "id": 51000002,
+      "name": "Project ATLAS",
+      "client_id": 16564087,
+      "client_name": "EggAI",
+      "code": "ATLAS",
+      "is_active": true,
+      "is_billable": true,
+      "is_fixed_fee": false,
+      "starts_on": null,
+      "ends_on": null,
+      "updated_at": "2026-04-30T10:00:00Z"
+    },
+    {
+      "id": 51000003,
+      "name": "Project HERMES",
+      "client_id": 16564087,
+      "client_name": "EggAI",
+      "code": "HERMES",
+      "is_active": true,
+      "is_billable": true,
+      "is_fixed_fee": false,
+      "starts_on": null,
+      "ends_on": null,
+      "updated_at": "2026-04-30T10:00:00Z"
+    }
+  ],
+  "time_entries": []
+}
