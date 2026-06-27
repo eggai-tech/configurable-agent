@@ -272,8 +272,6 @@ agent:
 mcpTools:
   - name: harvest
     transport: http
-    # Real Harvest by default; set HARVEST_MCP_URL=http://localhost:8765/mcp in .env
-    # to route through the local mock (examples/harvest/harvest-mock.mjs).
     url: "${HARVEST_MCP_URL}"
     headers:
       Harvest-Account-ID: "${HARVEST_ACCOUNT_ID}"
