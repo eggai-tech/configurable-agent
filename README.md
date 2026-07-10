@@ -71,6 +71,10 @@ safety:
     triggerTokens: 4000
     headChars: 500
     tailChars: 500
+  approval:                     # human-in-the-loop tool gating
+    mode: none                  # none | all | selected
+    tools: []                   # glob patterns used when mode: selected
+    #   e.g. ["delete_*", "send_email"]
 
 output:
   structured: false
@@ -100,7 +104,7 @@ All other tools are provided externally via MCP servers configured under `mcpToo
 | Route          | Method | Purpose |
 | -------------- | ------ | ------- |
 | `/health`      | GET    | Liveness — always 200 once the process is up. |
-| `/ready`       | GET    | Readiness — 200 when the config is loaded and required provider keys are present. The MCP tool registry is validated at startup, so if discovery or a tool-name conflict fails, the process exits non-zero before this endpoint is ever reachable. |
+| `/ready`       | GET    | Readiness — 200 when the config is loaded and required provider keys are present. Add `?deep=1` (or set `READINESS_DEEP_PROBE=1` to make it the default) to also make one minimal provider call that verifies credentials, connectivity, and the model name; on failure it returns 503 with the provider error. The MCP tool registry is validated at startup, so if discovery or a tool-name conflict fails, the process exits non-zero before this endpoint is ever reachable. |
 | `/invoke`      | POST   | Run the agent and stream events via SSE. |
 
 ### Request
@@ -119,6 +123,7 @@ event: reasoning          data: { text }
 event: content_delta      data: { text }
 event: tool_call          data: { id, name, args }
 event: tool_result        data: { id, output: ToolResult }
+event: tool_approval_requested data: { id, approvalId, name, args, signature? }
 event: compaction_start   data: { before: { tokens, messages } }
 event: compaction_finished data: { before, after, droppedCount }
 event: final              data: { content, structured?, stopReason, steps, truncated }
@@ -136,6 +141,7 @@ The `tool_result.output` payload is a `ToolResult` envelope:
   args: unknown,
   duration_ms: number,
   truncated?: boolean,     // true when content is the summary + head/tail
+  denied_reason?: 'policy_deny' | 'user_denied' | 'policy_compound', // when status === 'denied'
 }
 ```
 
@@ -160,9 +166,44 @@ the stream closes.
 | **Conversation compaction** | `countMessagesTokens(messages) > safety.compaction.triggerTokens` | LLM-summarize earlier turns; keep `keepRecentMessages` verbatim | `compaction_start`, `compaction_finished` |
 | **Tool output summarization** | A tool returns output whose token count exceeds `safety.toolOutput.triggerTokens` | Replace `output.content` with an LLM summary plus head/tail excerpts and set `output.truncated: true`; the summarized form, not the raw output, is what the next reasoning step sees | `tool_result` (with `output.truncated: true`) |
 | **Startup-time MCP validation** | Service start | Connect to every configured MCP server, list tools, and reject duplicate tool names. Initialization failure is fatal — the process exits non-zero before accepting traffic | — |
+| **Human-in-the-loop tool approval** | A tool call matches `safety.approval` (`mode: all`, or `mode: selected` + a name pattern) | The call is **not** executed; a `tool_approval_requested` event fires and the run pauses. Resolve it by appending a `tool-approval-response` to the history and re-POSTing (see below) | `tool_approval_requested`, `tool_result` (`approval_required`, then `denied`/`succeeded`) |
 
 Token counts use `gpt-tokenizer` (o200k_base). This is an approximation for
 Anthropic/Google — it generally over-counts, which is safe for threshold checks.
+
+### Tool approval (human-in-the-loop)
+
+When `safety.approval.mode` is `all` or `selected`, matching tool calls require
+explicit human approval before they run. The built-in `todowrite` tool is always
+exempt. The flow is fully stateless — approvals ride on the next `POST /invoke`,
+matching the AI SDK v7 tool-approval mechanism:
+
+1. The model calls a gated tool. The agent emits `tool_approval_requested`
+   (`{ id, approvalId, name, args, signature? }`) and a `tool_result` with
+   `status: 'approval_required'`, then **ends the response** without executing.
+2. The client shows the request to a human, then re-POSTs the **same message
+   history** plus a `tool`-role message containing a `tool-approval-response`:
+
+   ```jsonc
+   {
+     "role": "tool",
+     "content": [{
+       "type": "tool-approval-response",
+       "approvalId": "<from the event>",
+       "approved": true,                 // or false to deny
+       "reason": "optional note"
+     }]
+   }
+   ```
+3. On approval the tool executes and the turn continues; on denial the model
+   receives a `denied` (`denied_reason: 'user_denied'`) result and adapts.
+
+Because `/invoke` is stateless (the client owns history), set
+`TOOL_APPROVAL_SECRET` to a high-entropy value (e.g. `openssl rand -base64 32`)
+so the server HMAC-signs each approval request and rejects forged or tampered
+approvals. The signature is returned on the `tool_approval_requested` event and
+must be echoed back unchanged. All instances that handle requests need the same
+secret.
 
 ## Development
 
@@ -231,7 +272,24 @@ Ensure ollama is listening on `0.0.0.0:11434` (e.g. via `OLLAMA_HOST=0.0.0.0`).
 - **Logs**: pino to stderr (stdout is reserved for the CLI `run` record).
   `LOG_LEVEL` env var controls verbosity.
 - **Traces**: OpenTelemetry SDK auto-starts when `OTEL_EXPORTER_OTLP_ENDPOINT`
-  (or `OTEL_ENABLED`) is set. HTTP and fetch are auto-instrumented.
+  (or `OTEL_ENABLED`) is set. HTTP and fetch are auto-instrumented, and AI SDK
+  model calls emit spans via `@ai-sdk/otel`.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CONFIG_PATH` | `/etc/configurable-agent/config.yaml` | Path to the agent config YAML. |
+| `PORT` | `3000` | HTTP port for `serve` mode. |
+| `LOG_LEVEL` | `info` | pino log level (`trace`…`fatal`, `silent`). Logs go to stderr. |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | — | Provider credentials, per `model.provider`. `ollama` and `openai-compatible` may need none. |
+| `OLLAMA_BASE_URL` / `OPENAI_BASE_URL` | provider default | Override the base URL for `ollama` / `openai-compatible` when `model.baseUrl` is unset. |
+| `TOOL_APPROVAL_SECRET` | — | When set, HMAC-signs tool-approval requests so forged approvals are rejected. Recommended whenever `safety.approval` is enabled. |
+| `READINESS_DEEP_PROBE` | `0` | `1` makes `/ready` run the active provider probe by default (otherwise opt in per request with `?deep=1`). |
+| `READINESS_PROBE_TIMEOUT_MS` | `5000` | Timeout for the `/ready` deep probe. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_ENABLED` | — | Enable OpenTelemetry tracing. |
+| `OTEL_SERVICE_NAME` / `OTEL_SERVICE_VERSION` | `configurable-agent` / package version | Resource attributes for traces. |
+| `TRACEPARENT` | — | (CLI `run`) W3C trace parent; spans nest under this context. |
 
 ## Repository rules
 

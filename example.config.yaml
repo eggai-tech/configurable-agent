@@ -71,6 +71,18 @@ safety:
     triggerTokens: 4000
     headChars: 500
     tailChars: 500
+  approval:
+    # Human-in-the-loop tool gating.
+    #   none     - no tool ever needs approval (default)
+    #   all      - every model-invoked tool needs approval (todowrite exempt)
+    #   selected - only tools whose name matches a pattern below
+    mode: none
+    # Glob-style patterns (`*` wildcard), used when mode: selected.
+    tools: []
+    #   - "delete_*"
+    #   - "send_email"
+    # When approval is enabled, set TOOL_APPROVAL_SECRET so the server signs
+    # approval requests (the /invoke history is client-controlled).
 
 output:
   structured: false
