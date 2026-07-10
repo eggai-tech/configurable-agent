@@ -315,8 +315,131 @@ describe('runAgent — tool approval', () => {
     );
     expect(pending).toBeDefined();
 
-    // The turn is not finished — no final answer yet.
+    // The turn is not finished — no final answer yet; the pause event carries
+    // the messages a stateless client needs to resume.
     expect(events.some((e) => e.type === 'final')).toBe(false);
+    const paused = events.find((e) => e.type === 'run_paused');
+    if (paused?.type !== 'run_paused') throw new Error('no run_paused emitted');
+    expect(paused.reason).toBe('tool_approval');
+    expect(paused.messages.length).toBeGreaterThan(0);
+  });
+
+  it('resumes an approved run: the gated tool executes and a final is emitted', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text', text: 'tool ran' }] }));
+    const tools = {
+      guarded: {
+        description: 'guarded',
+        inputSchema: jsonSchema({ type: 'object', properties: {}, additionalProperties: true }),
+        type: 'dynamic' as const,
+        execute,
+      },
+    };
+    const approvalConfig = baseConfig({
+      safety: {
+        compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
+        toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+        approval: { mode: 'all', tools: [] },
+      },
+    });
+    const history: ModelMessage[] = [{ role: 'user', content: 'do the thing' }];
+
+    // Request 1: pause.
+    const first = multiStepModel([toolCallStream('guarded', { x: 1 })]);
+    const firstEvents: AgentEvent[] = [];
+    await runAgent(approvalConfig, history, (e) => void firstEvents.push(e), undefined, {
+      model: first.model,
+      tools: tools as never,
+    });
+    const paused = firstEvents.find((e) => e.type === 'run_paused');
+    const request = firstEvents.find((e) => e.type === 'tool_approval_requested');
+    if (paused?.type !== 'run_paused' || request?.type !== 'tool_approval_requested') {
+      throw new Error('run did not pause for approval');
+    }
+    expect(execute).not.toHaveBeenCalled();
+
+    // Request 2: same history + paused messages + the human decision.
+    const resumed: ModelMessage[] = [
+      ...history,
+      ...paused.messages,
+      {
+        role: 'tool',
+        content: [
+          { type: 'tool-approval-response', approvalId: request.approvalId, approved: true },
+        ],
+      } as ModelMessage,
+    ];
+    const second = multiStepModel([textStream('done after approval')]);
+    const secondEvents: AgentEvent[] = [];
+    await runAgent(approvalConfig, resumed, (e) => void secondEvents.push(e), undefined, {
+      model: second.model,
+      tools: tools as never,
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const toolResult = secondEvents.find((e) => e.type === 'tool_result');
+    if (toolResult?.type !== 'tool_result') throw new Error('no tool_result after approval');
+    expect(toolResult.output.status).toBe('succeeded');
+    const final = secondEvents.find((e) => e.type === 'final');
+    if (final?.type !== 'final') throw new Error('no final after approval');
+    expect(final.content).toBe('done after approval');
+  });
+
+  it('resumes a denied run: the tool never executes and the model is informed', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text', text: 'tool ran' }] }));
+    const tools = {
+      guarded: {
+        description: 'guarded',
+        inputSchema: jsonSchema({ type: 'object', properties: {}, additionalProperties: true }),
+        type: 'dynamic' as const,
+        execute,
+      },
+    };
+    const approvalConfig = baseConfig({
+      safety: {
+        compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
+        toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+        approval: { mode: 'all', tools: [] },
+      },
+    });
+    const history: ModelMessage[] = [{ role: 'user', content: 'do the thing' }];
+
+    const first = multiStepModel([toolCallStream('guarded', { x: 1 })]);
+    const firstEvents: AgentEvent[] = [];
+    await runAgent(approvalConfig, history, (e) => void firstEvents.push(e), undefined, {
+      model: first.model,
+      tools: tools as never,
+    });
+    const paused = firstEvents.find((e) => e.type === 'run_paused');
+    const request = firstEvents.find((e) => e.type === 'tool_approval_requested');
+    if (paused?.type !== 'run_paused' || request?.type !== 'tool_approval_requested') {
+      throw new Error('run did not pause for approval');
+    }
+
+    const resumed: ModelMessage[] = [
+      ...history,
+      ...paused.messages,
+      {
+        role: 'tool',
+        content: [
+          { type: 'tool-approval-response', approvalId: request.approvalId, approved: false },
+        ],
+      } as ModelMessage,
+    ];
+    const second = multiStepModel([textStream('understood, not doing that')]);
+    const secondEvents: AgentEvent[] = [];
+    await runAgent(approvalConfig, resumed, (e) => void secondEvents.push(e), undefined, {
+      model: second.model,
+      tools: tools as never,
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    const denied = secondEvents.find(
+      (e) => e.type === 'tool_result' && e.output.status === 'denied',
+    );
+    if (denied?.type !== 'tool_result') throw new Error('no denied tool_result');
+    expect(denied.output.denied_reason).toBe('user_denied');
+    const final = secondEvents.find((e) => e.type === 'final');
+    expect(final?.type).toBe('final');
   });
 
   it('does not gate tools when approval mode is none', async () => {
@@ -391,6 +514,57 @@ describe('runAgent — token usage in final event', () => {
   });
 });
 
+describe('runAgent — structured output', () => {
+  const structuredConfig = () =>
+    baseConfig({
+      output: {
+        structured: true,
+        schema: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+        },
+      },
+    });
+
+  it('emits the parsed object on final and suppresses content deltas', async () => {
+    const { model } = multiStepModel([textStream('{"answer":"42"}')]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      structuredConfig(),
+      [{ role: 'user', content: 'answer?' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    expect(events.some((e) => e.type === 'content_delta')).toBe(false);
+    const final = events.find((e) => e.type === 'final');
+    if (final?.type !== 'final') throw new Error('no final emitted');
+    expect(final.structured).toEqual({ answer: '42' });
+    expect(final.content).toBe('');
+  });
+
+  it('emits structured_output_failed when the model output does not match the schema', async () => {
+    const { model } = multiStepModel([textStream('not json at all')]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      structuredConfig(),
+      [{ role: 'user', content: 'answer?' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('structured_output_failed');
+    expect(events.some((e) => e.type === 'final')).toBe(false);
+  });
+});
+
 describe('diagnoseStep', () => {
   it('returns max_tokens_reached when finishReason is length', () => {
     const result = diagnoseStep({ finishReason: 'length', stepText: 'truncated' });
@@ -411,16 +585,21 @@ describe('diagnoseStep', () => {
 });
 
 describe('runAgent — error propagation integration', () => {
-  it('emits rate_limit_tokens when provider returns a 429 APICallError', async () => {
+  it('emits rate_limit_tokens with whitelisted headers only on a 429 APICallError', async () => {
     const model = new MockLanguageModelV3({
       doStream: async () => {
         throw new APICallError({
           message: 'Rate limit exceeded',
           url: 'https://api.example.com/v1/chat',
-          requestBodyValues: {},
+          requestBodyValues: { messages: ['SECRET PROMPT'] },
           statusCode: 429,
-          responseHeaders: { 'retry-after': '60' },
-          responseBody: '{"error":"rate_limit_exceeded"}',
+          responseHeaders: {
+            'retry-after': '60',
+            'x-ratelimit-remaining-tokens': '0',
+            'x-organization-id': 'org-secret',
+            'request-id': 'req-123',
+          },
+          responseBody: '{"error":"rate_limit_exceeded","account":"acct-secret"}',
           isRetryable: false,
         });
       },
@@ -439,9 +618,15 @@ describe('runAgent — error propagation integration', () => {
     expect(error?.type).toBe('error');
     if (error?.type === 'error') {
       expect(error.code).toBe('rate_limit_tokens');
-      expect(
-        (error.details as { responseHeaders?: Record<string, string> })?.responseHeaders,
-      ).toEqual({ 'retry-after': '60' });
+      expect(error.details).toEqual({
+        statusCode: 429,
+        responseHeaders: { 'retry-after': '60', 'x-ratelimit-remaining-tokens': '0' },
+      });
+      // Nothing from the provider request/response beyond the whitelist leaves
+      // the server.
+      expect(JSON.stringify(error)).not.toContain('SECRET PROMPT');
+      expect(JSON.stringify(error)).not.toContain('acct-secret');
+      expect(JSON.stringify(error)).not.toContain('org-secret');
     }
   });
 

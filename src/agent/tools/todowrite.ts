@@ -2,6 +2,7 @@ import type { Tool } from 'ai';
 import { tool } from 'ai';
 import { z } from 'zod';
 import type { ToolResult } from '../events.js';
+import { toolResultToModelOutput } from '../events.js';
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
 
@@ -20,7 +21,7 @@ export function createTodoStore(): TodoStore {
 }
 
 export function createTodoWriteTool(store: TodoStore): Tool {
-  const base = tool({
+  return tool({
     description:
       'Manage a structured todo list to plan and track multi-step work within this run. ' +
       'Each call REPLACES the entire list. Use this to break complex requests into steps, ' +
@@ -54,18 +55,6 @@ export function createTodoWriteTool(store: TodoStore): Tool {
         duration_ms: Date.now() - start,
       };
     },
+    toModelOutput: toolResultToModelOutput,
   });
-
-  return {
-    ...base,
-    // AI SDK invokes toModelOutput with { toolCallId, input, output }, where
-    // `output` is the value returned by execute() — not the value itself.
-    toModelOutput({ output }: { output: unknown }) {
-      const env = output as ToolResult;
-      if (env?.status === 'error') {
-        return { type: 'error-text', value: env.content } as const;
-      }
-      return { type: 'text', value: env.content } as const;
-    },
-  } as unknown as Tool;
 }

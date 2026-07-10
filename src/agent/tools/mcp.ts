@@ -6,6 +6,7 @@ import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
 import { logger } from '../../observability/logger.js';
 import { errorMessage, safeJson } from '../../util.js';
 import type { ToolResult } from '../events.js';
+import { toolResultToModelOutput } from '../events.js';
 import { maybeSummarizeToolOutput, type ToolSummaryRuntime } from '../safety/tool-summary.js';
 
 export interface McpRegistry {
@@ -33,7 +34,7 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
       try {
         const client = await createClientForServer(server);
         clients.push(client);
-        serverTools = (await client.tools()) as Record<string, Tool>;
+        serverTools = await client.tools();
       } catch (err) {
         // Name the offending server so a single broken transport is diagnosable
         // instead of surfacing as an opaque registry failure.
@@ -63,19 +64,23 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
   }
 
   return {
-    tools: allTools as ToolSet,
+    tools: allTools,
     cleanup: () => closeAll(clients),
   };
 }
 
-async function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
+function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
   if (server.transport === 'stdio') {
     return createMCPClient({
+      // Only the configured `env` reaches the child (plus the transport's safe
+      // defaults such as PATH/HOME) — never the full process environment, which
+      // holds provider API keys. Use `${VAR}` in the config to pass a specific
+      // variable through.
       transport: new Experimental_StdioMCPTransport({
         command: server.command,
         args: server.args,
         cwd: server.cwd,
-        env: { ...process.env, ...server.env } as Record<string, string>,
+        env: server.env,
       }),
     });
   }
@@ -136,7 +141,6 @@ export function normalizeJsonSchemaDraft2020(schema: unknown): unknown {
         out[exclusive] = out[bound];
         delete out[bound];
       } else {
-        // exclusiveMinimum: false (or no numeric bound) is just a plain bound
         delete out[exclusive];
       }
     }
@@ -148,16 +152,15 @@ export function normalizeJsonSchemaDraft2020(schema: unknown): unknown {
  * Wrap each tool's `execute()` so that MCP results are converted into the
  * `ToolResult` envelope and run through `maybeSummarizeToolOutput()` before they
  * are emitted to the caller AND before they are appended to message history.
- *
  * This is the seam that prevents oversized raw MCP output from leaking into the
  * next reasoning step.
  */
 export function wrapToolsWithSummarization(tools: ToolSet, ctx: ToolSummaryRuntime): ToolSet {
-  const wrapped: Record<string, Tool> = {};
+  const wrapped: ToolSet = {};
   for (const [name, t] of Object.entries(tools)) {
     wrapped[name] = wrapTool(name, t, ctx);
   }
-  return wrapped as ToolSet;
+  return wrapped;
 }
 
 type ExecuteFn = (input: unknown, options: unknown) => unknown | Promise<unknown>;
@@ -167,7 +170,7 @@ function wrapTool(name: string, t: Tool, ctx: ToolSummaryRuntime): Tool {
   if (typeof original !== 'function') {
     return t;
   }
-  const wrapped = {
+  return {
     ...t,
     async execute(input: unknown, options: unknown) {
       const start = Date.now();
@@ -175,18 +178,8 @@ function wrapTool(name: string, t: Tool, ctx: ToolSummaryRuntime): Tool {
       const envelope = mcpResultToEnvelope(raw, name, input, Date.now() - start);
       return maybeSummarizeToolOutput(envelope, name, ctx);
     },
-    // AI SDK invokes toModelOutput with { toolCallId, input, output }, where
-    // `output` is the value returned by execute() (our ToolResult envelope).
-    toModelOutput({ output }: { output: unknown }) {
-      const env = output as ToolResult;
-      const text = typeof env?.content === 'string' ? env.content : safeJson(env);
-      if (env?.status === 'error') {
-        return { type: 'error-text', value: text } as const;
-      }
-      return { type: 'text', value: text } as const;
-    },
-  };
-  return wrapped as unknown as Tool;
+    toModelOutput: toolResultToModelOutput,
+  } as Tool;
 }
 
 function mcpResultToEnvelope(
