@@ -3,4 +3,3 @@ allowBuilds:
   esbuild: true
   msw: true
   protobufjs: true
-minimumReleaseAge: 10080
