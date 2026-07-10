@@ -66,4 +66,23 @@ describe('maybeSummarizeToolOutput', () => {
     expect(out.return_code).toBeNull();
     expect(seen).toEqual([]);
   });
+
+  it('falls back to truncation (still succeeded) when summarization throws', async () => {
+    const summarize = vi.fn(async () => {
+      throw new Error('summarizer offline');
+    });
+    const big = 'line of output '.repeat(200);
+    const out = await maybeSummarizeToolOutput(envelope(big), 'some-tool', {
+      config: cfg(),
+      summarize,
+    });
+
+    expect(summarize).toHaveBeenCalledTimes(1);
+    // The tool succeeded; a summarizer outage must not turn it into an error.
+    expect(out.status).toBe('succeeded');
+    expect(out.truncated).toBe(true);
+    expect(out.content).toContain('summary unavailable');
+    expect(out.content).toContain('HEAD');
+    expect(out.content).toContain('TAIL');
+  });
 });

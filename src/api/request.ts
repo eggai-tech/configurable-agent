@@ -1,12 +1,9 @@
 import { z } from 'zod';
 
-const TextPart = z.object({
-  type: z.literal('text'),
-  text: z.string(),
-});
-
-const Content = z.union([z.string(), z.array(TextPart).min(1)]);
-
+// `content` is intentionally `unknown`: a ModelMessage's content spans many
+// shapes (text, image, file, tool-call, tool-result parts). The AI SDK
+// validates the full structure downstream, so we only assert the envelope
+// (role + a present content field) here.
 export const InvokeRequestSchema = z
   .object({
     messages: z
@@ -21,5 +18,3 @@ export const InvokeRequestSchema = z
   .strict();
 
 export type InvokeRequest = z.infer<typeof InvokeRequestSchema>;
-
-export { Content as MessageContent, TextPart };

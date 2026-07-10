@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { buildMcpRegistry } from '../agent/tools/mcp.js';
 import { buildServer } from '../api/server.js';
 import { loadConfig } from '../config/load.js';
+import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
 import { shutdownTracing, startTracing } from '../observability/tracing.js';
 
@@ -11,7 +12,14 @@ export async function runServe(): Promise<void> {
   const configPath = process.env.CONFIG_PATH ?? '/etc/configurable-agent/config.yaml';
   const port = Number(process.env.PORT ?? 3000);
 
-  const config = loadConfig(configPath);
+  let config: AgentConfig;
+  try {
+    config = loadConfig(configPath);
+  } catch (err) {
+    logger.error({ err, configPath }, 'config load failed');
+    await shutdownTracing();
+    process.exit(1);
+  }
   logger.info(
     { configPath, provider: config.model.provider, model: config.model.name },
     'config loaded',

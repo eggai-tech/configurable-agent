@@ -3,6 +3,8 @@ import { createMCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import { jsonSchema, type Tool, type ToolSet } from 'ai';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
+import { logger } from '../../observability/logger.js';
+import { errorMessage, safeJson } from '../../util.js';
 import type { ToolResult } from '../events.js';
 import { maybeSummarizeToolOutput, type ToolSummaryRuntime } from '../safety/tool-summary.js';
 
@@ -22,9 +24,25 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
 
   try {
     for (const server of cfg.mcpTools) {
-      const client = await createClientForServer(server);
-      clients.push(client);
-      const serverTools = (await client.tools()) as Record<string, Tool>;
+      logger.debug(
+        { server: server.name, transport: server.transport },
+        'connecting to MCP server',
+      );
+
+      let serverTools: Record<string, Tool>;
+      try {
+        const client = await createClientForServer(server);
+        clients.push(client);
+        serverTools = (await client.tools()) as Record<string, Tool>;
+      } catch (err) {
+        // Name the offending server so a single broken transport is diagnosable
+        // instead of surfacing as an opaque registry failure.
+        throw new Error(
+          `MCP server "${server.name}" (${server.transport}) failed during discovery: ${errorMessage(err)}`,
+          { cause: err },
+        );
+      }
+
       normalizeToolSchemas(serverTools);
       for (const toolName of Object.keys(serverTools)) {
         if (Object.hasOwn(allTools, toolName)) {
@@ -34,6 +52,10 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
         }
       }
       Object.assign(allTools, serverTools);
+      logger.info(
+        { server: server.name, tools: Object.keys(serverTools).length },
+        'MCP server ready',
+      );
     }
   } catch (err) {
     await closeAll(clients);
@@ -208,12 +230,4 @@ function mcpResultToEnvelope(
     args,
     duration_ms: durationMs,
   };
-}
-
-function safeJson(v: unknown): string {
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
 }

@@ -70,6 +70,34 @@ describe('maybeCompactMessages', () => {
     ]);
   });
 
+  it('keeps the run alive when summarization fails, dropping earlier turns', async () => {
+    const { emit, seen } = events();
+    const bigContent = 'x'.repeat(400);
+    const messages: ModelMessage[] = [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: `Q1 ${bigContent}` },
+      { role: 'assistant', content: `A1 ${bigContent}` },
+      { role: 'user', content: `Q2 ${bigContent}` },
+      { role: 'assistant', content: `A2 ${bigContent}` },
+      { role: 'user', content: 'Q3 short' },
+      { role: 'assistant', content: 'A3 short' },
+    ];
+    const summarize = vi.fn(async () => {
+      throw new Error('summarizer offline');
+    });
+
+    const out = await maybeCompactMessages({ messages, config: cfg(), summarize, emit });
+
+    // No throw: compaction completes with a placeholder instead of failing.
+    expect(seen[1]?.type).toBe('compaction_finished');
+    expect(out[0]).toEqual({ role: 'system', content: 'SYS' });
+    expect(String(out[1]?.content)).toContain('summarization unavailable');
+    expect(out.slice(-2)).toEqual([
+      { role: 'user', content: 'Q3 short' },
+      { role: 'assistant', content: 'A3 short' },
+    ]);
+  });
+
   it('compaction_finished reports smaller token count than compaction_start', async () => {
     const { emit, seen } = events();
     const bigContent = 'lorem ipsum dolor sit amet '.repeat(40);

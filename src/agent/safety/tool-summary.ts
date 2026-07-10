@@ -1,4 +1,6 @@
 import type { AgentConfig } from '../../config/schema.js';
+import { logger } from '../../observability/logger.js';
+import { errorMessage } from '../../util.js';
 import type { ToolResult } from '../events.js';
 import type { Summarizer } from './compaction.js';
 import { countTextTokens } from './tokens.js';
@@ -7,6 +9,10 @@ export interface ToolSummaryRuntime {
   config: AgentConfig;
   summarize: Summarizer;
 }
+
+// Upper bound on how much raw output is fed to the summarizer prompt. Independent
+// of the head/tail excerpt sizes: this caps the summarizer's own input cost.
+const SUMMARY_INPUT_CHAR_LIMIT = 40_000;
 
 export async function maybeSummarizeToolOutput(
   envelope: ToolResult,
@@ -31,12 +37,26 @@ export async function maybeSummarizeToolOutput(
     'identifiers; omit noise like repeated lines or formatting.',
     '',
     'Tool output (may be truncated):',
-    raw.slice(0, 40_000),
+    raw.slice(0, SUMMARY_INPUT_CHAR_LIMIT),
   ].join('\n');
 
-  const summary = await ctx.summarize(summaryPrompt);
+  // The tool itself succeeded; only shrinking its output failed. Degrade to a
+  // head/tail excerpt rather than throwing, which would wrongly surface as a
+  // tool error and discard a real result.
+  let summary: string | null = null;
+  try {
+    summary = await ctx.summarize(summaryPrompt);
+  } catch (err) {
+    logger.warn(
+      { tool: toolName, err: errorMessage(err) },
+      'tool-output summarization failed; falling back to truncation',
+    );
+  }
 
-  const parts = [summary, '', `--- HEAD (first ${headChars} chars) ---`, headExcerpt];
+  const parts = summary
+    ? [summary, '']
+    : ['[summary unavailable — showing truncated raw output]', ''];
+  parts.push(`--- HEAD (first ${headChars} chars) ---`, headExcerpt);
   if (tailExcerpt.length > 0) {
     parts.push('', `--- TAIL (last ${tailChars} chars) ---`, tailExcerpt);
   }

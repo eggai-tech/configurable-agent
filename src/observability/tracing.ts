@@ -5,6 +5,7 @@ import { defaultResource, resourceFromAttributes } from '@opentelemetry/resource
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
 import { registerTelemetry } from 'ai';
+import { VERSION } from '../version.js';
 import { logger } from './logger.js';
 
 let sdk: NodeSDK | undefined;
@@ -23,7 +24,7 @@ export function startTracing(): void {
   const resource = defaultResource().merge(
     resourceFromAttributes({
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'configurable-agent',
-      [ATTR_SERVICE_VERSION]: process.env.OTEL_SERVICE_VERSION ?? '0.2.1',
+      [ATTR_SERVICE_VERSION]: process.env.OTEL_SERVICE_VERSION ?? VERSION,
     }),
   );
 

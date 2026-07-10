@@ -2,10 +2,11 @@
 import { Command } from 'commander';
 import { runCli } from './modes/run.js';
 import { runServe } from './modes/serve.js';
+import { VERSION } from './version.js';
 
 const program = new Command();
 
-program.name('configurable-agent').version('0.1.0', '-v, --version');
+program.name('configurable-agent').version(VERSION, '-v, --version');
 
 program
   .command('serve')

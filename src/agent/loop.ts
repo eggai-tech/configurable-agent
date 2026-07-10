@@ -12,6 +12,7 @@ import {
   type ToolSet,
 } from 'ai';
 import type { AgentConfig } from '../config/schema.js';
+import { errorMessage, safeJson } from '../util.js';
 import type { AgentEmitter, ToolResult } from './events.js';
 import { buildModel } from './model.js';
 import { renderSystemPrompt } from './prompt.js';
@@ -308,20 +309,6 @@ function isToolResult(value: unknown): value is ToolResult {
     'label' in value &&
     'duration_ms' in value
   );
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  return JSON.stringify(err);
 }
 
 function isAbortError(err: unknown): boolean {

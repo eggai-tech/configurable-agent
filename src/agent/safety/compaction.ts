@@ -1,5 +1,7 @@
 import type { ModelMessage } from 'ai';
 import type { AgentConfig } from '../../config/schema.js';
+import { logger } from '../../observability/logger.js';
+import { errorMessage } from '../../util.js';
 import type { AgentEmitter } from '../events.js';
 import { countMessagesTokens, stringifyMessageContent } from './tokens.js';
 
@@ -53,7 +55,19 @@ export async function maybeCompactMessages({
     earlierText,
   ].join('\n');
 
-  const summary = await summarize(summaryPrompt);
+  // A summarizer outage must not abort an otherwise-healthy run. Fall back to
+  // dropping the earlier turns without a summary: context is lost, but tokens
+  // still shrink so the loop makes progress instead of failing every step.
+  let summary: string;
+  try {
+    summary = await summarize(summaryPrompt);
+  } catch (err) {
+    logger.warn(
+      { err: errorMessage(err) },
+      'context compaction summarization failed; dropping earlier turns without a summary',
+    );
+    summary = '[earlier conversation omitted — summarization unavailable]';
+  }
 
   const summaryMessage: ModelMessage = {
     role: 'system',

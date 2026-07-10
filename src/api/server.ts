@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import type { ModelMessage, ToolSet } from 'ai';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import type { AgentEvent } from '../agent/events.js';
 import { runAgent } from '../agent/loop.js';
 import { requiredEnvVarFor } from '../agent/model.js';
 import type { AgentConfig } from '../config/schema.js';
@@ -44,6 +46,9 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
     }
 
     const incoming = parsed.data.messages as ModelMessage[];
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    logger.info({ requestId, messages: incoming.length }, 'invoke started');
 
     return streamSSE(c, async (stream) => {
       const abortController = new AbortController();
@@ -61,19 +66,27 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
         abortController.abort();
       });
 
+      // Emit wrapper: log agent-level errors server-side (they are otherwise
+      // only visible to the SSE client) and swallow write failures — once the
+      // client disconnects there is nothing left to send, and that is not an
+      // agent failure.
+      const emit = async (event: AgentEvent): Promise<void> => {
+        if (event.type === 'error') {
+          logger.error({ requestId, code: event.code, message: event.message }, 'agent error');
+        }
+        try {
+          await writeAgentEvent(stream, event);
+        } catch (err) {
+          logger.debug({ requestId, err }, 'failed to write SSE event (client disconnected?)');
+        }
+      };
+
       try {
-        await runAgent(
-          config,
-          incoming,
-          async (event) => {
-            await writeAgentEvent(stream, event);
-          },
-          abortController.signal,
-          { tools },
-        );
+        await runAgent(config, incoming, emit, abortController.signal, { tools });
+        logger.info({ requestId, durationMs: Date.now() - startedAt }, 'invoke finished');
       } catch (err) {
-        logger.error({ err }, 'agent run failed');
-        await writeAgentEvent(stream, {
+        logger.error({ requestId, err, durationMs: Date.now() - startedAt }, 'agent run failed');
+        await emit({
           type: 'error',
           code: 'internal_error',
           message: err instanceof Error ? err.message : String(err),

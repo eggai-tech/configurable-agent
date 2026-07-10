@@ -7,6 +7,7 @@ import { parseTraceparent, type RunRecord, readAllStdin, writeRunRecord } from '
 import { ConfigError, loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
 import { shutdownTracing, startTracing } from '../observability/tracing.js';
+import { errorMessage as errMsg } from '../util.js';
 
 const USAGE = `Usage: configurable-agent run --config <path-to-config.yaml>
 
@@ -173,14 +174,4 @@ function parseConfigFlag(argv: string[]): string | null {
     if (a?.startsWith('--config=')) return a.slice('--config='.length);
   }
   return null;
-}
-
-function errMsg(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
 }
