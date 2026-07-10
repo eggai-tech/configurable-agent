@@ -1,5 +1,5 @@
-import { tool } from 'ai';
 import type { Tool } from 'ai';
+import { tool } from 'ai';
 import { z } from 'zod';
 import type { ToolResult } from '../events.js';
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
+import { convertArrayToReadableStream, MockLanguageModelV3 } from 'ai/test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseTraceparent } from '../src/cli/stdio.js';
 import { runCli } from '../src/modes/run.js';

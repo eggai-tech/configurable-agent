@@ -1,10 +1,10 @@
-import { createMCPClient } from '@ai-sdk/mcp';
 import type { MCPClient } from '@ai-sdk/mcp';
+import { createMCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
-import { type Tool, type ToolSet, jsonSchema } from 'ai';
+import { jsonSchema, type Tool, type ToolSet } from 'ai';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
 import type { ToolResult } from '../events.js';
-import { type ToolSummaryRuntime, maybeSummarizeToolOutput } from '../safety/tool-summary.js';
+import { maybeSummarizeToolOutput, type ToolSummaryRuntime } from '../safety/tool-summary.js';
 
 export interface McpRegistry {
   tools: ToolSet;
@@ -27,7 +27,7 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
       const serverTools = (await client.tools()) as Record<string, Tool>;
       normalizeToolSchemas(serverTools);
       for (const toolName of Object.keys(serverTools)) {
-        if (Object.prototype.hasOwnProperty.call(allTools, toolName)) {
+        if (Object.hasOwn(allTools, toolName)) {
           throw new Error(
             `MCP tool name conflict: "${toolName}" is exposed by "${server.name}" but already registered by a previously loaded server`,
           );

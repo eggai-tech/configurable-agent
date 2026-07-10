@@ -31,11 +31,7 @@ interface FakeClient {
 }
 
 function fakeClient(
-  opts: {
-    toolsResult?: Record<string, unknown>;
-    toolsThrows?: Error;
-    closeThrows?: Error;
-  } = {},
+  opts: { toolsResult?: Record<string, unknown>; toolsThrows?: Error; closeThrows?: Error } = {},
 ): FakeClient {
   // State lives on the returned object directly so tests can inspect mutations.
   const c: FakeClient = {

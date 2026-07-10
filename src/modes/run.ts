@@ -1,9 +1,9 @@
-import { type SpanContext, context, trace } from '@opentelemetry/api';
+import { context, type SpanContext, trace } from '@opentelemetry/api';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { type AgentEvent, runAgent } from '../agent/loop.js';
 import { buildMcpRegistry } from '../agent/tools/mcp.js';
 import { InvokeRequestSchema } from '../api/request.js';
-import { type RunRecord, parseTraceparent, readAllStdin, writeRunRecord } from '../cli/stdio.js';
+import { parseTraceparent, type RunRecord, readAllStdin, writeRunRecord } from '../cli/stdio.js';
 import { ConfigError, loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
 import { shutdownTracing, startTracing } from '../observability/tracing.js';

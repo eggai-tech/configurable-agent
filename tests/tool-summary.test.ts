@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentEvent } from '../src/agent/events.js';
-import type { ToolResult } from '../src/agent/events.js';
+import type { AgentEvent, ToolResult } from '../src/agent/events.js';
 import { maybeSummarizeToolOutput } from '../src/agent/safety/tool-summary.js';
 import type { AgentConfig } from '../src/config/schema.js';
 

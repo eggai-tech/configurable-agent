@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Ajv } from 'ajv';
 import ajvFormatsPkg from 'ajv-formats';
 import { parse as parseYaml } from 'yaml';
+
 // ajv-formats is CJS with `export default`; NodeNext resolution types the default import
 // as the module namespace. Grab the real callable plugin from `.default` when present.
 const addFormats = (
@@ -9,6 +10,7 @@ const addFormats = (
     ? ajvFormatsPkg
     : (ajvFormatsPkg as unknown as { default: (ajv: Ajv) => Ajv }).default
 ) as (ajv: Ajv) => Ajv;
+
 import { type AgentConfig, AgentConfigSchema } from './schema.js';
 
 export class ConfigError extends Error {

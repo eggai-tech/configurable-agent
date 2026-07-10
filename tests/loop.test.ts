@@ -1,8 +1,8 @@
-import { APICallError } from '@ai-sdk/provider';
 import type { LanguageModelV3CallOptions, LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { APICallError } from '@ai-sdk/provider';
 import type { ModelMessage } from 'ai';
 import { jsonSchema } from 'ai';
-import { MockLanguageModelV3, convertArrayToReadableStream } from 'ai/test';
+import { convertArrayToReadableStream, MockLanguageModelV3 } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
 import { type AgentEvent, diagnoseStep, prepareMessages, runAgent } from '../src/agent/loop.js';
 import type { AgentConfig } from '../src/config/schema.js';
