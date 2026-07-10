@@ -27,7 +27,9 @@ export async function maybeSummarizeToolOutput(
 
   const raw = envelope.content;
   const headExcerpt = raw.slice(0, headChars);
-  const tailExcerpt = raw.length > headChars + tailChars ? raw.slice(-tailChars) : '';
+  // Guard tailChars > 0: `slice(-0)` would return the entire raw string.
+  const tailExcerpt =
+    tailChars > 0 && raw.length > headChars + tailChars ? raw.slice(-tailChars) : '';
 
   const summaryPrompt = [
     `The "${toolName}" tool returned output too large to include verbatim in the`,

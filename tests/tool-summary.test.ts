@@ -86,4 +86,18 @@ describe('maybeSummarizeToolOutput', () => {
     expect(out.content).toContain('HEAD');
     expect(out.content).toContain('TAIL');
   });
+
+  it('does not leak the full raw output when tailChars is 0', async () => {
+    const summarize = vi.fn(async () => 'short summary');
+    const big = `START${'x'.repeat(3000)}END`;
+    const out = await maybeSummarizeToolOutput(envelope(big), 'some-tool', {
+      config: cfg({ tailChars: 0 }),
+      summarize,
+    });
+
+    expect(out.truncated).toBe(true);
+    expect(out.content).not.toContain('END');
+    expect(out.content).not.toContain('TAIL');
+    expect(out.content.length).toBeLessThan(500);
+  });
 });
