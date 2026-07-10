@@ -15,16 +15,16 @@ const McpStdioServerSchema = z.object({
   name: z.string().min(1),
   transport: z.literal('stdio'),
   command: z.string().min(1),
-  args: z.array(z.string()).optional().default([]),
+  args: z.array(z.string()).default([]),
   cwd: z.string().optional(),
-  env: z.record(z.string(), z.string()).optional().default({}),
+  env: z.record(z.string(), z.string()).default({}),
 });
 
 const McpHttpServerSchema = z.object({
   name: z.string().min(1),
   transport: z.literal('http'),
-  url: z.string().url(),
-  headers: z.record(z.string(), z.string()).optional().default({}),
+  url: z.url(),
+  headers: z.record(z.string(), z.string()).default({}),
 });
 
 const McpServerSchema = z.discriminatedUnion('transport', [
@@ -41,7 +41,7 @@ export const AgentConfigSchema = z
     model: z.object({
       provider: ModelProvider,
       name: z.string().min(1),
-      baseUrl: z.string().url().optional(),
+      baseUrl: z.url().optional(),
       temperature: z.number().min(0).max(2).optional(),
       topP: z.number().min(0).max(1).optional(),
       maxOutputTokens: z.number().int().positive().optional(),
@@ -50,8 +50,8 @@ export const AgentConfigSchema = z
       .object({
         maxSteps: z.number().int().positive().default(10),
       })
-      .default({ maxSteps: 10 }),
-    mcpTools: z.array(McpServerSchema).optional().default([]),
+      .prefault({}),
+    mcpTools: z.array(McpServerSchema).default([]),
     output: z
       .discriminatedUnion('structured', [
         z.object({ structured: z.literal(false) }),
@@ -65,14 +65,14 @@ export const AgentConfigSchema = z
             triggerTokens: z.number().int().positive().default(100_000),
             keepRecentMessages: z.number().int().positive().default(6),
           })
-          .default({ triggerTokens: 100_000, keepRecentMessages: 6 }),
+          .prefault({}),
         toolOutput: z
           .object({
             triggerTokens: z.number().int().positive().default(4_000),
             headChars: z.number().int().nonnegative().default(500),
             tailChars: z.number().int().nonnegative().default(500),
           })
-          .default({ triggerTokens: 4_000, headChars: 500, tailChars: 500 }),
+          .prefault({}),
         approval: z
           .object({
             // 'none' — no tool ever needs approval (default).
@@ -83,13 +83,9 @@ export const AgentConfigSchema = z
             // 'selected', e.g. "delete_*", "send_email".
             tools: z.array(z.string()).default([]),
           })
-          .default({ mode: 'none', tools: [] }),
+          .prefault({}),
       })
-      .default({
-        compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-        toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
-        approval: { mode: 'none', tools: [] },
-      }),
+      .prefault({}),
     evals: z
       .object({
         dir: z.string().min(1),
