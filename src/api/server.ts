@@ -1,3 +1,4 @@
+import { httpInstrumentationMiddleware } from '@hono/otel';
 import type { ModelMessage, ToolSet } from 'ai';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -19,6 +20,8 @@ export interface BuildServerOptions {
 export function buildServer(config: AgentConfig, options: BuildServerOptions) {
   const app = new Hono();
   const { tools } = options;
+
+  app.use('*', httpInstrumentationMiddleware());
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
