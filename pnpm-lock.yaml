@@ -62,9 +62,6 @@ importers:
       commander:
         specifier: ^15.0.0
         version: 15.0.0
-      gpt-tokenizer:
-        specifier: ^3.4.0
-        version: 3.4.0
       handlebars:
         specifier: ^4.7.9
         version: 4.7.9
@@ -1537,9 +1534,6 @@ packages:
   google-logging-utils@1.1.3:
     resolution: {integrity: sha512-eAmLkjDjAFCVXg7A1unxHsLf961m6y17QFqXqAXGj/gVkKFrEICfStRfwUlGNfeCEjNRa32JEWOUTlYXPyyKvA==}
     engines: {node: '>=14'}
-
-  gpt-tokenizer@3.4.0:
-    resolution: {integrity: sha512-wxFLnhIXTDjYebd9A9pGl3e31ZpSypbpIJSOswbgop5jLte/AsZVDvjlbEuVFlsqZixVKqbcoNmRlFDf6pz/UQ==}
 
   graphql@16.14.2:
     resolution: {integrity: sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA==}
@@ -3606,8 +3600,6 @@ snapshots:
       path-scurry: 1.11.1
 
   google-logging-utils@1.1.3: {}
-
-  gpt-tokenizer@3.4.0: {}
 
   graphql@16.14.2: {}
 

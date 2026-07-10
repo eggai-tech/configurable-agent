@@ -1,12 +1,10 @@
 import type { ModelMessage } from 'ai';
-import { countTokens as gptCountTokens } from 'gpt-tokenizer';
 
-// gpt-tokenizer uses o200k_base (GPT-4o) by default. It's an approximation for
-// Anthropic/Google; Anthropic tokens are typically ~25% shorter than OpenAI's,
-// so this over-counts — safe for "too big?" thresholds.
-
+// Chars/4 approximation (the AI SDK docs' own estimator). The counts only feed
+// "too big?" threshold gates, never billing, so an approximation is sufficient
+// and avoids shipping a tokenizer dependency.
 export function countTextTokens(text: string): number {
-  return gptCountTokens(text);
+  return Math.ceil(text.length / 4);
 }
 
 export function countMessagesTokens(messages: ReadonlyArray<ModelMessage>): number {
