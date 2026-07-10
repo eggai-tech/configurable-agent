@@ -1,29 +1,40 @@
 # Configurable Agent
 
-A configurable LLM agent service. One YAML file defines the agent's system
-prompt, model, tools, and safety knobs. It exposes an HTTP endpoint that
-streams the agent loop back to clients over Server-Sent Events.
+Turn a single YAML file into a running LLM agent with an HTTP API. You define
+the system prompt, model, tools, and safety limits; the service runs the
+tool-use loop and streams every step back to your client over Server-Sent
+Events (SSE).
 
-Built to be dropped into Kubernetes — the YAML lives in a `ConfigMap`,
-provider API keys live in a `Secret`.
+It is built to drop into Kubernetes — the config lives in a `ConfigMap`, provider
+API keys in a `Secret` — but runs just as happily as a local process or a
+container.
 
-## Stack
+## Features
 
-Node 22 · TypeScript (ESM) · [Hono](https://hono.dev) · [Vercel AI SDK](https://sdk.vercel.ai/)
-· Zod · pino · OpenTelemetry · Biome · Vitest. Package manager: pnpm.
+- **One-file configuration** — prompt, model, tools, and safety knobs in YAML.
+- **Any major provider** — Anthropic, OpenAI, Google, or any OpenAI-compatible
+  endpoint (including local [ollama](https://ollama.com)).
+- **External tools via MCP** — connect any Model Context Protocol server over
+  stdio or HTTP; the agent discovers and uses its tools.
+- **Streaming** — reasoning, text, tool calls, and results stream live over SSE.
+- **Structured output** — optionally validate the final answer against a JSON
+  Schema.
+- **Human-in-the-loop approval** — require a person to approve sensitive tool
+  calls before they run.
+- **Built-in safety** — automatic conversation compaction and tool-output
+  summarization keep long runs within context limits.
 
-Providers: Anthropic, OpenAI, Google, and any OpenAI-compatible endpoint
-(including local [ollama](https://ollama.com)) via `@ai-sdk/openai-compatible`.
+## Quick start
 
-## Quick start (local)
+Run it locally:
 
 ```bash
 pnpm install
-export ANTHROPIC_API_KEY=...         # or OPENAI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
+export ANTHROPIC_API_KEY=...          # or OPENAI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
 CONFIG_PATH=./example.config.yaml pnpm dev
 ```
 
-Then:
+Then send a request and watch the response stream:
 
 ```bash
 curl -N -X POST http://localhost:3000/invoke \
@@ -33,28 +44,34 @@ curl -N -X POST http://localhost:3000/invoke \
 
 ## Configuration
 
-Loaded once at startup from `CONFIG_PATH` (default `/etc/configurable-agent/config.yaml`).
-The process exits non-zero if the file is invalid.
+The agent is configured by a single YAML file, loaded once at startup from the
+path in `CONFIG_PATH` (default `/etc/configurable-agent/config.yaml`). If the
+file is missing or invalid, the process exits immediately with an error.
+
+Any `${VAR}` reference in a string value is replaced with that environment
+variable at load time, so secrets (API tokens, header values) stay out of the
+file itself.
+
+### Full example
 
 ```yaml
 systemPrompt: |
   You are a helpful assistant...
 
 model:
-  provider: anthropic           # anthropic | openai | google | ollama
+  provider: anthropic           # anthropic | openai | google | ollama | openai-compatible
   name: claude-sonnet-4-6
-  # baseUrl: http://host.docker.internal:11434/v1   # required for ollama
   temperature: 0.2
   # topP, maxOutputTokens also supported
+  # baseUrl: http://host.docker.internal:11434/v1   # for ollama / openai-compatible
 
 agent:
   maxSteps: 10                  # hard cap on the tool-use loop
 
-mcpTools:                       # external MCP servers (none bundled — see Built-in tools below)
+mcpTools:                       # external MCP servers (optional)
   - name: accounts
     transport: stdio
     command: accounts-mcp
-    args: []
     env:
       ACCOUNTS_URL: http://accounts:8080
   # - name: files
@@ -64,125 +81,204 @@ mcpTools:                       # external MCP servers (none bundled — see Bui
   #     X-Tenant: acme
 
 safety:
-  compaction:                   # before each LLM call
+  compaction:                   # summarize old turns when the history grows large
     triggerTokens: 100000
     keepRecentMessages: 6
-  toolOutput:                   # after each tool call
+  toolOutput:                   # summarize oversized tool results
     triggerTokens: 4000
     headChars: 500
     tailChars: 500
-  approval:                     # human-in-the-loop tool gating
+  approval:                     # require human approval for tool calls
     mode: none                  # none | all | selected
-    tools: []                   # glob patterns used when mode: selected
-    #   e.g. ["delete_*", "send_email"]
+    tools: []                   # name patterns when mode: selected, e.g. ["delete_*"]
 
 output:
   structured: false
-  # When true, the final SSE event includes a `structured` field validated
-  # against the JSON Schema below:
-  # structured: true
-  # schema:
-  #   type: object
-  #   properties:
-  #     answer: { type: string }
-  #     confidence: { type: number }
-  #   required: [answer]
 ```
 
-## Built-in tools
+### Model and providers
 
-The agent always has access to one built-in tool regardless of `mcpTools` configuration:
+Set `model.provider` to one of `anthropic`, `openai`, `google`, `ollama`, or
+`openai-compatible`, and `model.name` to a model the provider offers. Each
+hosted provider reads its API key from an environment variable (see
+[Environment variables](#environment-variables)).
 
-| Tool | Purpose |
-|------|---------|
-| `todowrite` | Maintains an in-memory todo list for the duration of a single run. Each call **replaces** the entire list. Use it to break complex requests into steps and track progress (`pending` → `in_progress` → `completed`). The store is reset between requests. |
+For `ollama` and `openai-compatible`, point `model.baseUrl` at your endpoint
+(these often need no API key). See
+[Connecting to a local ollama](#connecting-to-a-local-ollama) for a Kubernetes
+tip.
 
-All other tools are provided externally via MCP servers configured under `mcpTools`.
+### Prompt templating
+
+`systemPrompt` is a [Handlebars](https://handlebarsjs.com) template. These
+variables are always available:
+
+- `{{today}}` — current date (`YYYY-MM-DD`)
+- `{{now}}` — current timestamp (ISO 8601)
+- `{{cwd}}` — the process working directory
+
+Add your own values under `promptVars` and reference them the same way:
+
+```yaml
+systemPrompt: |
+  You are the {{team}} assistant. Today is {{today}}.
+promptVars:
+  team: Platform
+```
+
+### Tools
+
+The model can call tools during a run. One tool is always available; the rest
+come from the MCP servers you configure.
+
+#### Built-in: `todowrite`
+
+A scratchpad todo list for a single run. The model uses it to break a complex
+request into steps and track progress (`pending` → `in_progress` → `completed`).
+It holds no data between requests and never requires approval.
+
+#### MCP servers
+
+List any number of [Model Context Protocol](https://modelcontextprotocol.io)
+servers under `mcpTools`. Each is connected at startup and its tools are exposed
+to the model:
+
+- **stdio** — a local command: `transport: stdio`, with `command`, optional
+  `args`, `cwd`, and `env`.
+- **http** — a remote server: `transport: http`, with `url` and optional
+  `headers`.
+
+All configured servers are validated at startup: if one can't be reached, or two
+servers expose the same tool name, the service fails to start rather than serving
+with a broken tool set.
+
+### Structured output
+
+By default the agent replies with free text. To require a machine-readable
+answer, set `output.structured: true` and provide a JSON Schema. The final
+response is validated against it and returned in the `structured` field of the
+final event:
+
+```yaml
+output:
+  structured: true
+  schema:
+    type: object
+    properties:
+      answer: { type: string }
+      confidence: { type: number, minimum: 0, maximum: 1 }
+    required: [answer]
+```
+
+### Safety
+
+These features run automatically to keep long or noisy runs reliable.
+
+#### Conversation compaction
+
+When the conversation grows beyond `compaction.triggerTokens`, older turns are
+summarized into a compact note while the most recent `keepRecentMessages` are
+kept verbatim. Emits `compaction_start` and `compaction_finished` events.
+
+#### Tool-output summarization
+
+When a tool returns more than `toolOutput.triggerTokens` of output, it is
+replaced with a short summary plus the first `headChars` and last `tailChars` of
+the raw output. The summarized form (marked `truncated: true`) is what the model
+sees on the next step, so one huge result can't blow the context budget.
+
+#### Tool approval (human-in-the-loop)
+
+Require a person to approve tool calls before they execute — useful for tools
+that modify data, spend money, send messages, or touch anything sensitive.
+
+Configure it under `safety.approval`:
+
+| `mode` | Behavior |
+|--------|----------|
+| `none` | No tool ever needs approval (default). |
+| `all` | Every tool call needs approval (the built-in `todowrite` is exempt). |
+| `selected` | Only tools whose name matches a pattern in `tools`. Patterns are glob-style, where `*` is a wildcard — e.g. `delete_*`, `send_email`. |
+
+When a matching tool is called, it is **not** executed. Instead the run pauses
+and emits a `tool_approval_requested` event. Your client decides and resumes the
+run — see [Resolving a tool approval](#resolving-a-tool-approval).
+
+> **Security:** because `/invoke` is stateless (your client owns the
+> conversation history), set `TOOL_APPROVAL_SECRET` to a strong random value
+> (e.g. `openssl rand -base64 32`) whenever approval is enabled. The service then
+> signs each approval request and rejects any that were forged or tampered with.
+> Every instance that serves requests must share the same secret.
 
 ## HTTP API
 
-| Route          | Method | Purpose |
-| -------------- | ------ | ------- |
-| `/health`      | GET    | Liveness — always 200 once the process is up. |
-| `/ready`       | GET    | Readiness — 200 when the config is loaded and required provider keys are present. Add `?deep=1` (or set `READINESS_DEEP_PROBE=1` to make it the default) to also make one minimal provider call that verifies credentials, connectivity, and the model name; on failure it returns 503 with the provider error. The MCP tool registry is validated at startup, so if discovery or a tool-name conflict fails, the process exits non-zero before this endpoint is ever reachable. |
-| `/invoke`      | POST   | Run the agent and stream events via SSE. |
+### Endpoints
 
-### Request
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/health` | GET | Liveness — returns 200 as soon as the process is up. |
+| `/ready` | GET | Readiness — 200 when the config is loaded and the provider key is present. Add `?deep=1` to also make one tiny provider call that verifies the credentials, URL, and model actually work (returns 503 with the error if not). |
+| `/invoke` | POST | Run the agent and stream the result over SSE. |
+
+### Request format
 
 ```json
 { "messages": [{ "role": "user", "content": "..." }] }
 ```
 
-Roles: `system` | `user` | `assistant`. Caller-provided `system` messages are
-stripped and replaced with the configured `systemPrompt`.
+`messages` is the conversation so far. Roles are `user`, `assistant`, and `tool`
+(the last is used only to return a [tool approval
+decision](#resolving-a-tool-approval)). Any `system` message you send is ignored
+in favor of the configured `systemPrompt`.
 
-### SSE event taxonomy
+### Streaming events (SSE)
 
-```
-event: reasoning          data: { text }
-event: content_delta      data: { text }
-event: tool_call          data: { id, name, args }
-event: tool_result        data: { id, output: ToolResult }
-event: tool_approval_requested data: { id, approvalId, name, args, signature? }
-event: compaction_start   data: { before: { tokens, messages } }
-event: compaction_finished data: { before, after, droppedCount }
-event: final              data: { content, structured?, stopReason, steps, truncated }
-event: error              data: { code, message, details? }
-```
+`/invoke` streams the run as it happens. Each event has a named type and a JSON
+`data` payload:
 
-The `tool_result.output` payload is a `ToolResult` envelope:
+| Event | Payload | Meaning |
+|-------|---------|---------|
+| `reasoning` | `{ text }` | A chunk of the model's reasoning. |
+| `content_delta` | `{ text }` | A chunk of the answer text. |
+| `tool_call` | `{ id, name, args }` | The model invoked a tool. |
+| `tool_result` | `{ id, output }` | A tool finished; `output` is a [result envelope](#tool-result-envelope). |
+| `tool_approval_requested` | `{ id, approvalId, name, args, signature? }` | A tool call is waiting for human approval. |
+| `compaction_start` / `compaction_finished` | sizes | Conversation compaction ran. |
+| `final` | `{ content, structured?, stopReason, steps }` | The run finished; `structured` is present in structured-output mode. |
+| `error` | `{ code, message, details? }` | The run ended with an error. |
+
+Parallel tool calls within a single step are supported and stream concurrently.
+Closing the connection cancels the run.
+
+The loop is capped at `agent.maxSteps`. On the final step the agent forces a text
+answer instead of another tool call; if the model tries to call a tool anyway,
+the run ends with an `error` (`code: tool_call_on_final_step`).
+
+#### Tool result envelope
+
+The `output` of every `tool_result` has this shape:
 
 ```ts
 {
-  label: string,
+  label: string,           // tool name
   status: 'succeeded' | 'error' | 'denied' | 'approval_required',
-  content: string,         // post-summarization for oversized results
+  content: string,         // the result (summarized if it was oversized)
   return_code: number | null,
-  args: unknown,
+  args: unknown,           // the input the tool was called with
   duration_ms: number,
-  truncated?: boolean,     // true when content is the summary + head/tail
-  denied_reason?: 'policy_deny' | 'user_denied' | 'policy_compound', // when status === 'denied'
+  truncated?: boolean,     // true when content was summarized
+  denied_reason?: 'policy_deny' | 'user_denied' | 'policy_compound',
 }
 ```
 
-Truncation is signalled in-band via `output.truncated: true`; there is no
-separate `tool_result_truncated` event.
+### Resolving a tool approval
 
-Each step is a single LLM call. Parallel tool calls within one step are
-supported and emit concurrent `tool_call` / `tool_result` pairs. Closing
-the HTTP connection aborts the loop server-side.
+When approval is enabled and the model calls a gated tool, the run pauses:
 
-### Last-step guarantee
-
-On the final step (`maxSteps`), the agent sends the model `toolChoice: 'none'`,
-forcing a natural-language answer. If the model still hallucinates a tool call
-anyway, an `error` event with `code: "tool_call_on_final_step"` is emitted and
-the stream closes.
-
-## Safety features
-
-| Feature | Trigger | Action | Event(s) |
-|---|---|---|---|
-| **Conversation compaction** | `countMessagesTokens(messages) > safety.compaction.triggerTokens` | LLM-summarize earlier turns; keep `keepRecentMessages` verbatim | `compaction_start`, `compaction_finished` |
-| **Tool output summarization** | A tool returns output whose token count exceeds `safety.toolOutput.triggerTokens` | Replace `output.content` with an LLM summary plus head/tail excerpts and set `output.truncated: true`; the summarized form, not the raw output, is what the next reasoning step sees | `tool_result` (with `output.truncated: true`) |
-| **Startup-time MCP validation** | Service start | Connect to every configured MCP server, list tools, and reject duplicate tool names. Initialization failure is fatal — the process exits non-zero before accepting traffic | — |
-| **Human-in-the-loop tool approval** | A tool call matches `safety.approval` (`mode: all`, or `mode: selected` + a name pattern) | The call is **not** executed; a `tool_approval_requested` event fires and the run pauses. Resolve it by appending a `tool-approval-response` to the history and re-POSTing (see below) | `tool_approval_requested`, `tool_result` (`approval_required`, then `denied`/`succeeded`) |
-
-Token counts use `gpt-tokenizer` (o200k_base). This is an approximation for
-Anthropic/Google — it generally over-counts, which is safe for threshold checks.
-
-### Tool approval (human-in-the-loop)
-
-When `safety.approval.mode` is `all` or `selected`, matching tool calls require
-explicit human approval before they run. The built-in `todowrite` tool is always
-exempt. The flow is fully stateless — approvals ride on the next `POST /invoke`,
-matching the AI SDK v7 tool-approval mechanism:
-
-1. The model calls a gated tool. The agent emits `tool_approval_requested`
-   (`{ id, approvalId, name, args, signature? }`) and a `tool_result` with
-   `status: 'approval_required'`, then **ends the response** without executing.
-2. The client shows the request to a human, then re-POSTs the **same message
-   history** plus a `tool`-role message containing a `tool-approval-response`:
+1. You receive a `tool_approval_requested` event and the response ends. The tool
+   has **not** run.
+2. Get a decision from a human, then send a new `/invoke` request with the **same
+   messages** plus a `tool` message carrying the decision:
 
    ```jsonc
    {
@@ -190,73 +286,54 @@ matching the AI SDK v7 tool-approval mechanism:
      "content": [{
        "type": "tool-approval-response",
        "approvalId": "<from the event>",
-       "approved": true,                 // or false to deny
+       "approved": true,               // false to deny
        "reason": "optional note"
      }]
    }
    ```
-3. On approval the tool executes and the turn continues; on denial the model
-   receives a `denied` (`denied_reason: 'user_denied'`) result and adapts.
 
-Because `/invoke` is stateless (the client owns history), set
-`TOOL_APPROVAL_SECRET` to a high-entropy value (e.g. `openssl rand -base64 32`)
-so the server HMAC-signs each approval request and rejects forged or tampered
-approvals. The signature is returned on the `tool_approval_requested` event and
-must be echoed back unchanged. All instances that handle requests need the same
-secret.
+   If `TOOL_APPROVAL_SECRET` is set, also echo back the `signature` from the
+   event unchanged.
+3. On approval, the tool runs and the agent continues. On denial, the model is
+   told the call was declined and adapts its answer.
 
-## Development
+## Deployment
 
-```bash
-pnpm dev             # tsx watch
-pnpm test            # vitest
-pnpm typecheck       # tsc --noEmit
-pnpm lint            # biome check
-pnpm lint:fix        # biome check --write
-pnpm build           # tsc -> dist/
-pnpm start           # node dist/index.js
-```
-
-## Docker
+### Docker
 
 ```bash
 docker build -t eggai-configurable-agent:latest .
 docker run --rm \
   -e ANTHROPIC_API_KEY=... \
-  -e TAVILY_API_KEY=... \
   -v "$PWD/example.config.yaml:/etc/configurable-agent/config.yaml:ro" \
   -p 3000:3000 \
   eggai-configurable-agent:latest
 ```
 
-## Kubernetes
+### Kubernetes
 
-Manifests in `k8s/`:
+Ready-to-apply manifests live in `k8s/`:
 
-- `configmap.yaml` — the agent's YAML, mounted at `/etc/configurable-agent/config.yaml`
-- `secret.example.yaml` — template for provider keys consumed via `envFrom`
-- `deployment.yaml` — hardened pod spec (non-root, read-only rootfs, dropped caps)
+- `configmap.yaml` — the agent config, mounted at `/etc/configurable-agent/config.yaml`
+- `secret.example.yaml` — template for provider keys
+- `deployment.yaml` — hardened pod (non-root, read-only root filesystem, dropped capabilities)
 - `service.yaml` — ClusterIP on port 80
 
 ```bash
 kubectl create namespace configurable-agent
 kubectl -n configurable-agent create secret generic configurable-agent-provider-keys \
-  --from-literal=ANTHROPIC_API_KEY=... \
-  --from-literal=TAVILY_API_KEY=...
+  --from-literal=ANTHROPIC_API_KEY=...
 kubectl -n configurable-agent apply -f k8s/
 ```
 
-Real deployments should not commit keys — populate `configurable-agent-provider-keys` via
-Vault Secrets Operator, External Secrets Operator, Vault Agent Injector, or
-another secret-sync mechanism. The pod stays Vault-agnostic and only reads
-env vars.
+Don't commit real keys — populate the secret with Vault, External Secrets
+Operator, or another secret-sync tool. The pod only reads environment variables
+and stays agnostic to how they get there.
 
-### Local ollama from a kind pod
+### Connecting to a local ollama
 
-`k8s/deployment.yaml` includes a `hostAliases` entry mapping
-`host.docker.internal → 172.23.0.1` (the kind network gateway on Linux), so
-a pod can reach an ollama running on the developer's laptop. Point the
-config at it:
+`k8s/deployment.yaml` maps `host.docker.internal` to the kind network gateway so
+a pod can reach an ollama running on your machine. Point the config at it:
 
 ```yaml
 model:
@@ -265,32 +342,37 @@ model:
   baseUrl: http://host.docker.internal:11434/v1
 ```
 
-Ensure ollama is listening on `0.0.0.0:11434` (e.g. via `OLLAMA_HOST=0.0.0.0`).
+Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 
 ## Observability
 
-- **Logs**: pino to stderr (stdout is reserved for the CLI `run` record).
-  `LOG_LEVEL` env var controls verbosity.
-- **Traces**: OpenTelemetry SDK auto-starts when `OTEL_EXPORTER_OTLP_ENDPOINT`
-  (or `OTEL_ENABLED`) is set. HTTP and fetch are auto-instrumented, and AI SDK
-  model calls emit spans via `@ai-sdk/otel`.
+- **Logs** — structured JSON via [pino](https://getpino.io), written to stderr.
+  Set the level with `LOG_LEVEL`.
+- **Traces** — OpenTelemetry starts automatically when
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED`) is set. HTTP calls and model
+  calls are traced; spans export over OTLP.
 
 ## Environment variables
 
 | Variable | Default | Purpose |
-|---|---|---|
-| `CONFIG_PATH` | `/etc/configurable-agent/config.yaml` | Path to the agent config YAML. |
-| `PORT` | `3000` | HTTP port for `serve` mode. |
-| `LOG_LEVEL` | `info` | pino log level (`trace`…`fatal`, `silent`). Logs go to stderr. |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | — | Provider credentials, per `model.provider`. `ollama` and `openai-compatible` may need none. |
-| `OLLAMA_BASE_URL` / `OPENAI_BASE_URL` | provider default | Override the base URL for `ollama` / `openai-compatible` when `model.baseUrl` is unset. |
-| `TOOL_APPROVAL_SECRET` | — | When set, HMAC-signs tool-approval requests so forged approvals are rejected. Recommended whenever `safety.approval` is enabled. |
-| `READINESS_DEEP_PROBE` | `0` | `1` makes `/ready` run the active provider probe by default (otherwise opt in per request with `?deep=1`). |
-| `READINESS_PROBE_TIMEOUT_MS` | `5000` | Timeout for the `/ready` deep probe. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_ENABLED` | — | Enable OpenTelemetry tracing. |
-| `OTEL_SERVICE_NAME` / `OTEL_SERVICE_VERSION` | `configurable-agent` / package version | Resource attributes for traces. |
-| `TRACEPARENT` | — | (CLI `run`) W3C trace parent; spans nest under this context. |
+|----------|---------|---------|
+| `CONFIG_PATH` | `/etc/configurable-agent/config.yaml` | Path to the agent config. |
+| `PORT` | `3000` | HTTP port. |
+| `LOG_LEVEL` | `info` | Log level (`trace`…`fatal`, or `silent`). |
+| `ANTHROPIC_API_KEY` · `OPENAI_API_KEY` · `GOOGLE_GENERATIVE_AI_API_KEY` | — | Provider credentials, per `model.provider`. |
+| `OLLAMA_BASE_URL` · `OPENAI_BASE_URL` | provider default | Base URL for `ollama` / `openai-compatible` when `model.baseUrl` is unset. |
+| `TOOL_APPROVAL_SECRET` | — | Signs tool-approval requests. Set this whenever approval is enabled. |
+| `READINESS_DEEP_PROBE` | `0` | Set to `1` to make `/ready` run the provider probe by default (otherwise opt in with `?deep=1`). |
+| `READINESS_PROBE_TIMEOUT_MS` | `5000` | Timeout for the `/ready` provider probe. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_ENABLED` | — | Enable OpenTelemetry tracing. |
+| `OTEL_SERVICE_NAME` · `OTEL_SERVICE_VERSION` | `configurable-agent` / version | Trace resource attributes. |
 
-## Repository rules
+## Development
 
-See `CLAUDE.md`.
+```bash
+pnpm dev         # run with reload
+pnpm test        # run the test suite
+pnpm typecheck   # type-check
+pnpm lint        # lint / format check
+pnpm build       # compile to dist/
+```
