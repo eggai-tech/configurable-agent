@@ -1,5 +1,5 @@
-import { experimental_createMCPClient as createMCPClient } from '@ai-sdk/mcp';
-import type { experimental_MCPClient as MCPClient } from '@ai-sdk/mcp';
+import { createMCPClient } from '@ai-sdk/mcp';
+import type { MCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import { type Tool, type ToolSet, jsonSchema } from 'ai';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
@@ -153,7 +153,7 @@ function wrapTool(name: string, t: Tool, ctx: ToolSummaryRuntime): Tool {
       const envelope = mcpResultToEnvelope(raw, name, input, Date.now() - start);
       return maybeSummarizeToolOutput(envelope, name, ctx);
     },
-    // AI SDK v6 invokes toModelOutput with { toolCallId, input, output }, where
+    // AI SDK invokes toModelOutput with { toolCallId, input, output }, where
     // `output` is the value returned by execute() (our ToolResult envelope).
     toModelOutput({ output }: { output: unknown }) {
       const env = output as ToolResult;

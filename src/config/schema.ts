@@ -9,7 +9,7 @@ export const ModelProvider = z.enum([
 ]);
 export type ModelProvider = z.infer<typeof ModelProvider>;
 
-const JsonSchemaObject = z.record(z.unknown());
+const JsonSchemaObject = z.record(z.string(), z.unknown());
 
 const McpStdioServerSchema = z.object({
   name: z.string().min(1),
@@ -17,14 +17,14 @@ const McpStdioServerSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()).optional().default([]),
   cwd: z.string().optional(),
-  env: z.record(z.string()).optional().default({}),
+  env: z.record(z.string(), z.string()).optional().default({}),
 });
 
 const McpHttpServerSchema = z.object({
   name: z.string().min(1),
   transport: z.literal('http'),
   url: z.string().url(),
-  headers: z.record(z.string()).optional().default({}),
+  headers: z.record(z.string(), z.string()).optional().default({}),
 });
 
 const McpServerSchema = z.discriminatedUnion('transport', [
@@ -37,7 +37,7 @@ export type McpServerConfig = z.infer<typeof McpServerSchema>;
 export const AgentConfigSchema = z
   .object({
     systemPrompt: z.string().min(1),
-    promptVars: z.record(z.unknown()).optional(),
+    promptVars: z.record(z.string(), z.unknown()).optional(),
     model: z.object({
       provider: ModelProvider,
       name: z.string().min(1),

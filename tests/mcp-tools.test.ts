@@ -9,7 +9,7 @@ import type { AgentConfig } from '../src/config/schema.js';
 // Mock the AI SDK MCP modules so tests never spawn child processes or open
 // network connections. Each test queues fake clients on the createClient mock.
 vi.mock('@ai-sdk/mcp', () => ({
-  experimental_createMCPClient: vi.fn(),
+  createMCPClient: vi.fn(),
 }));
 
 vi.mock('@ai-sdk/mcp/mcp-stdio', () => ({
@@ -21,7 +21,7 @@ vi.mock('@ai-sdk/mcp/mcp-stdio', () => ({
   },
 }));
 
-import { experimental_createMCPClient as createClient } from '@ai-sdk/mcp';
+import { createMCPClient as createClient } from '@ai-sdk/mcp';
 
 interface FakeClient {
   tools: () => Promise<Record<string, unknown>>;

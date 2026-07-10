@@ -7,8 +7,8 @@ import {
   type ToolSet,
   generateObject,
   generateText,
+  isStepCount,
   jsonSchema,
-  stepCountIs,
   streamText,
 } from 'ai';
 import type { AgentConfig } from '../config/schema.js';
@@ -49,7 +49,7 @@ export async function runAgent(
       model,
       prompt,
       abortSignal,
-      experimental_telemetry: { isEnabled: true, functionId: 'configurable-agent.summarize' },
+      telemetry: { functionId: 'configurable-agent.summarize' },
     });
     return text;
   };
@@ -86,24 +86,26 @@ export async function runAgent(
       const stream = streamText({
         model,
         messages,
+        // The loop injects trusted, server-built system messages (base prompt +
+        // compaction summary) into the array; incoming system messages are
+        // stripped in prepareMessages, so opting in here is safe.
+        allowSystemInMessages: true,
         tools,
-        stopWhen: stepCountIs(1),
+        stopWhen: isStepCount(1),
         toolChoice: isLastStep ? ('none' as const) : undefined,
         temperature: config.model.temperature,
         topP: config.model.topP,
         maxOutputTokens: config.model.maxOutputTokens,
         abortSignal,
-        experimental_telemetry: {
-          isEnabled: true,
+        telemetry: {
           functionId: 'configurable-agent.step',
-          metadata: { step: stepsRun, maxSteps },
         },
       });
 
       let stepHasToolCalls = false;
       let stepText = '';
 
-      for await (const part of stream.fullStream) {
+      for await (const part of stream.stream) {
         switch (part.type) {
           case 'reasoning-delta':
             await emit({ type: 'reasoning', text: part.text });
@@ -207,6 +209,7 @@ export async function runAgent(
           try {
             const { object } = await generateObject({
               model,
+              allowSystemInMessages: true,
               messages: [
                 ...messages,
                 {
@@ -217,8 +220,7 @@ export async function runAgent(
               ],
               schema: jsonSchema(config.output.schema),
               abortSignal,
-              experimental_telemetry: {
-                isEnabled: true,
+              telemetry: {
                 functionId: 'configurable-agent.structured',
               },
             });
