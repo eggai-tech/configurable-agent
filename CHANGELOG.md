@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependency hygiene: removed unused `shell-quote`, `@types/shell-quote`, and
   `msw`; removed the redundant direct `vite` (vitest provides it); added a
   `test:coverage` script wiring the existing `@vitest/coverage-v8`
+- Request validation reuses the AI SDK's `modelMessageSchema`, so `/invoke`
+  and CLI stdin accept exactly what the model layer accepts and malformed
+  messages fail fast with a readable, field-by-field error (`z.prettifyError`
+  / `z.treeifyError`) instead of mid-stream; config validation errors likewise
+  name the offending path and the accepted values
 - stdio MCP servers receive only their configured `env` (plus a minimal safe
   set such as `PATH`), no longer the full service environment with provider
   API keys — pass specific variables through explicitly with `${VAR}`

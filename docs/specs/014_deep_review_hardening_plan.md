@@ -144,6 +144,32 @@ Audited every `src`/`tests` import against `package.json`:
   `ai@7.0.19`'s own exact pin, guaranteeing one deduped instance for
   `APICallError.isInstance` checks.
 
+## Type system & zod alignment
+
+- **Types derive from zod schemas** wherever a schema exists: `AgentConfig`,
+  `McpServerConfig`, `InvokeRequest` (already inferred) plus `TodoItem`/
+  `TodoStatus`/`TodoWriteInput`, now inferred from the todowrite tool's input
+  schema — one source of truth, no parallel interface to drift.
+- **The request boundary reuses the AI SDK's `modelMessageSchema`**
+  (`z.ZodType<ModelMessage>`): `/invoke` and CLI stdin accept exactly what
+  `streamText` accepts (verified against text, multimodal, tool-call/-result,
+  approval-request/-response fixtures), the `as ModelMessage[]` casts are
+  gone, and malformed messages fail at the boundary with a clear message
+  instead of mid-stream. Supersedes the "envelope-only, content: unknown"
+  note from spec 012 — the SDK's own schema cannot wrongly reject what the
+  SDK itself accepts.
+- **Zod error ergonomics**: every config constraint carries a descriptive
+  message naming the path and accepted values; validation failures report via
+  `z.prettifyError` (humans: CLI stderr, ConfigError message, API `message`)
+  and `z.treeifyError` (machines: API `details`), replacing deprecated
+  `.format()`.
+- **No `any` anywhere; `unknown` only at real boundaries** (thrown errors,
+  YAML input, MCP wire results, tool args passed through per spec 003).
+  Remaining casts are documented interop seams: ajv-formats CJS default,
+  version.ts package.json read, MCP schema normalization, hono ServerType.
+- Tests use typed fakes (`ToolSet`-shaped tools, one `asMcpClient()` seam)
+  instead of `as never` casts.
+
 ## Verification
 
 `corepack pnpm typecheck`, `test` (91 tests, incl. new compaction tool-loop,
