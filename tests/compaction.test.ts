@@ -61,8 +61,9 @@ describe('maybeCompactMessages', () => {
 
     // System preserved
     expect(out[0]).toEqual({ role: 'system', content: 'SYS' });
-    // Summary injected as synthetic system context
-    expect(out[1]?.role).toBe('system');
+    // Summary injected as a synthetic user message (provider-safe even when
+    // the kept recent turns start with an assistant message)
+    expect(out[1]?.role).toBe('user');
     expect(String(out[1]?.content)).toContain('brief summary');
     // Recent turns preserved verbatim
     expect(out.slice(-2)).toEqual([
@@ -159,10 +160,36 @@ describe('maybeCompactMessages', () => {
       emit,
     });
 
-    const systemMessages = secondPass.filter((m) => m.role === 'system');
-    expect(systemMessages).toHaveLength(2);
-    expect(systemMessages[0]).toEqual({ role: 'system', content: 'SYS' });
-    expect(String(systemMessages[1]?.content)).toContain('second summary');
+    const summaries = secondPass.filter((m) => String(m.content).includes('[COMPACTED CONTEXT]'));
+    expect(summaries).toHaveLength(1);
+    expect(String(summaries[0]?.content)).toContain('second summary');
+    expect(secondPass[0]).toEqual({ role: 'system', content: 'SYS' });
+  });
+
+  it('compacts a tool-loop history whose only user message is the original request', async () => {
+    const { emit, seen } = events();
+    const big = 'x'.repeat(400);
+    const messages: ModelMessage[] = [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'do the thing' },
+      { role: 'assistant', content: `calling tool A ${big}` },
+      { role: 'tool', content: [] },
+      { role: 'assistant', content: `calling tool B ${big}` },
+      { role: 'tool', content: [] },
+      { role: 'assistant', content: `calling tool C ${big}` },
+      { role: 'tool', content: [] },
+    ];
+    const summarize = vi.fn(async () => 'tool-loop summary');
+
+    const out = await maybeCompactMessages({ messages, config: cfg(), summarize, emit });
+
+    expect(seen.some((e) => e.type === 'compaction_finished')).toBe(true);
+    expect(summarize).toHaveBeenCalledTimes(1);
+    // Recent window must not start on a tool message (would orphan tool results
+    // from their assistant tool-call).
+    const summaryIdx = out.findIndex((m) => String(m.content).includes('[COMPACTED CONTEXT]'));
+    expect(summaryIdx).toBe(1);
+    expect(out[summaryIdx + 1]?.role).not.toBe('tool');
   });
 });
 

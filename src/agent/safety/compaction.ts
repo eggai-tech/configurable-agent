@@ -7,11 +7,14 @@ import { countMessagesTokens, stringifyMessageContent } from './tokens.js';
 
 export type Summarizer = (prompt: string) => Promise<string>;
 
+export const COMPACTION_MARKER = '[COMPACTED CONTEXT]';
+
 interface CompactionInputs {
   messages: ModelMessage[];
   config: AgentConfig;
   summarize: Summarizer;
   emit: AgentEmitter;
+  abortSignal?: AbortSignal;
 }
 
 export async function maybeCompactMessages({
@@ -19,6 +22,7 @@ export async function maybeCompactMessages({
   config,
   summarize,
   emit,
+  abortSignal,
 }: CompactionInputs): Promise<ModelMessage[]> {
   const beforeTokens = countMessagesTokens(messages);
   if (beforeTokens <= config.safety.compaction.triggerTokens) {
@@ -33,7 +37,6 @@ export async function maybeCompactMessages({
 
   const earlier = compactable.slice(0, split);
   const recent = compactable.slice(split);
-  if (earlier.length === 0) return messages;
 
   await emit({
     type: 'compaction_start',
@@ -62,6 +65,7 @@ export async function maybeCompactMessages({
   try {
     summary = await summarize(summaryPrompt);
   } catch (err) {
+    if (abortSignal?.aborted) throw err;
     logger.warn(
       { err: errorMessage(err) },
       'context compaction summarization failed; dropping earlier turns without a summary',
@@ -69,9 +73,12 @@ export async function maybeCompactMessages({
     summary = '[earlier conversation omitted — summarization unavailable]';
   }
 
+  // The summary rides as a user message: providers such as Anthropic reject a
+  // conversation whose first non-system message is not user-role, which would
+  // otherwise happen whenever `recent` starts on an assistant message.
   const summaryMessage: ModelMessage = {
-    role: 'system',
-    content: `[COMPACTED CONTEXT]\n${summary}`,
+    role: 'user',
+    content: `${COMPACTION_MARKER}\n${summary}`,
   };
 
   const newMessages: ModelMessage[] = [
@@ -102,16 +109,17 @@ function splitBaseSystem(messages: ModelMessage[]): {
   return { baseSystem: null, compactable: messages };
 }
 
-// Pick a split index such that `recent` starts on a safe boundary (a user
-// message, so we don't break an assistant/tool pair).
+// Pick a split index so `recent` never starts on a tool message — that would
+// separate an assistant tool-call from its tool results and break the
+// assistant/tool pairing providers require. Any user or assistant boundary is
+// safe (an assistant tool-call keeps its results because they follow it).
 function chooseSplitIndex(messages: ModelMessage[], keepRecent: number): number | null {
   if (messages.length <= keepRecent) return null;
 
-  let idx = Math.max(0, messages.length - keepRecent);
-  while (idx < messages.length && messages[idx]?.role !== 'user') {
+  let idx = messages.length - keepRecent;
+  while (idx < messages.length && messages[idx]?.role === 'tool') {
     idx++;
   }
-  if (idx >= messages.length) return null;
-  if (idx === 0) return null;
+  if (idx >= messages.length || idx === 0) return null;
   return idx;
 }
