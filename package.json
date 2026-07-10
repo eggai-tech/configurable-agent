@@ -27,6 +27,7 @@
     "start": "node dist/index.js serve",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "ci:lint": "biome ci .",
     "lint": "biome check .",
@@ -54,19 +55,15 @@
     "handlebars": "^4.7.9",
     "hono": "^4.12.28",
     "pino": "^10.3.1",
-    "shell-quote": "^1.9.0",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
     "@types/node": "^26.1.1",
-    "@types/shell-quote": "^1.7.5",
     "@vitest/coverage-v8": "^4.1.10",
-    "msw": "^2.15.0",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2",
-    "vite": "^8.1.4",
     "vitest": "^4.1.10"
   }
 }

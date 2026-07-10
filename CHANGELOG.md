@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pass (its tokens now count toward the reported usage)
 - Context size is estimated with a chars/4 heuristic; the 55 MB `gpt-tokenizer`
   dependency was removed
+- Dependency hygiene: removed unused `shell-quote`, `@types/shell-quote`, and
+  `msw`; removed the redundant direct `vite` (vitest provides it); added a
+  `test:coverage` script wiring the existing `@vitest/coverage-v8`
 - stdio MCP servers receive only their configured `env` (plus a minimal safe
   set such as `PATH`), no longer the full service environment with provider
   API keys — pass specific variables through explicitly with `${VAR}`

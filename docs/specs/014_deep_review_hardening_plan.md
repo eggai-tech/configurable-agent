@@ -120,6 +120,30 @@ All fixes verified with the full suite (`typecheck`, `test`, `lint`, `build`).
    passages); this spec is the amendment record, per the review's
    contradiction list (spec 012/013 style).
 
+## Dependency hygiene
+
+Audited every `src`/`tests` import against `package.json`:
+
+- **dependencies** = exactly the packages statically imported by `src/`
+  (AI SDK family, Hono, OpenTelemetry stack, ajv(+formats), commander,
+  handlebars, pino, yaml, zod). No phantom imports, no unused entries.
+- **Removed dead deps**: `shell-quote` + `@types/shell-quote` (orphaned by the
+  spec-008 bash-tool removal) and `msw` (no test imports it) — also dropped
+  from the Dockerfile rebuild line and `pnpm-workspace.yaml` allowBuilds.
+  Removed `vite` (vitest ships its own compatible vite; it was never imported).
+- **devDependencies** = tooling only, each wired to a script: biome (lint),
+  typescript (typecheck/build), tsx (dev), vitest (test), `@vitest/coverage-v8`
+  (new `test:coverage` script), `@types/node`.
+- **optionalDependencies**: deliberately none — every runtime import is
+  static/unconditional. All provider SDKs stay required because the provider is
+  chosen by config at runtime; making them optional would need dynamic imports
+  and error paths for a marginal install-size win on a Docker-deployed service.
+- **peerDependencies**: not applicable — this is an app/CLI package; `./lib`
+  consumers receive everything transitively.
+- `@ai-sdk/provider` stays pinned at the exact `4.0.3` on purpose: it matches
+  `ai@7.0.19`'s own exact pin, guaranteeing one deduped instance for
+  `APICallError.isInstance` checks.
+
 ## Verification
 
 `corepack pnpm typecheck`, `test` (91 tests, incl. new compaction tool-loop,
