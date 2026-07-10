@@ -228,7 +228,8 @@ Ensure ollama is listening on `0.0.0.0:11434` (e.g. via `OLLAMA_HOST=0.0.0.0`).
 
 ## Observability
 
-- **Logs**: pino to stdout. `LOG_LEVEL` env var controls verbosity.
+- **Logs**: pino to stderr (stdout is reserved for the CLI `run` record).
+  `LOG_LEVEL` env var controls verbosity.
 - **Traces**: OpenTelemetry SDK auto-starts when `OTEL_EXPORTER_OTLP_ENDPOINT`
   (or `OTEL_ENABLED`) is set. HTTP and fetch are auto-instrumented.
 
