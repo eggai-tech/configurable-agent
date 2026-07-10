@@ -66,8 +66,13 @@ event and must be echoed back. Zero-config and backward-compatible when unset.
 
 ## Version
 
-Bumped to **0.3.0** (single-sourced via `src/version.ts`; the CLI banner and
-OTEL resource pick it up automatically). New feature → minor bump.
+The runtime version is single-sourced via `src/version.ts` (CLI banner + OTEL
+resource read it from `package.json`). The version *number* is bumped by the
+release automation (`create-release-pr` runs `pnpm version` and stamps the
+CHANGELOG from `[Unreleased]`), not by a manual `package.json` edit — a manual
+bump to the target version would make that workflow's `pnpm version` step fail.
+So this work is recorded under CHANGELOG `[Unreleased]` and ships as the next
+minor (0.3.0) when a release PR is cut.
 
 ## Tests & docs
 

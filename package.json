@@ -1,6 +1,6 @@
 {
   "name": "@eggai/configurable-agent",
-  "version": "0.3.0",
+  "version": "0.2.1",
   "type": "module",
   "bin": {
     "configurable-agent": "dist/index.js"

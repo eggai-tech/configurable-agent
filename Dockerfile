@@ -9,10 +9,10 @@
 
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+RUN corepack enable && corepack prepare pnpm@11.1.2 --activate
 COPY package.json pnpm-lock.yaml ./
 # pnpm-workspace.yaml is consulted by pnpm even in single-project mode for
-# supply-chain settings (minimumReleaseAge); copy if present.
+# supply-chain settings (allowBuilds); copy if present.
 COPY pnpm-workspace.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts && \
@@ -28,7 +28,7 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
     CONFIG_PATH=/etc/configurable-agent/config.yaml
-RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+RUN corepack enable && corepack prepare pnpm@11.1.2 --activate
 COPY package.json pnpm-lock.yaml ./
 COPY pnpm-workspace.yaml* ./
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
