@@ -5,8 +5,8 @@ import { PassThrough } from 'node:stream';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { convertArrayToReadableStream, MockLanguageModelV3 } from 'ai/test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { parseTraceparent } from '../src/cli/stdio.js';
 import { runCli } from '../src/modes/run.js';
+import { parseTraceparent } from '../src/observability/tracing.js';
 
 type StreamPart = LanguageModelV3StreamPart;
 
