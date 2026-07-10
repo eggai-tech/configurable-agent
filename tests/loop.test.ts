@@ -192,7 +192,7 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
       [{ role: 'user', content: 'fetch huge thing' }],
       (e) => void events.push(e),
       undefined,
-      { model, tools: tools as never },
+      { model, tools },
     );
 
     // Sanity: 2 model calls — one tool-calling, one final.
@@ -232,7 +232,7 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
       [{ role: 'user', content: 'go' }],
       (e) => void events.push(e),
       undefined,
-      { model, tools: tools as never },
+      { model, tools },
     );
 
     const toolResult = events.find((e) => e.type === 'tool_result');
@@ -260,7 +260,7 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
       const { model } = multiStepModel([toolCallStream('shared', { i }), textStream(`done-${i}`)]);
       await runAgent(baseConfig(), [{ role: 'user', content: `req ${i}` }], () => {}, undefined, {
         model,
-        tools: tools as never,
+        tools,
       });
     }
 
@@ -297,7 +297,7 @@ describe('runAgent — tool approval', () => {
       [{ role: 'user', content: 'do the thing' }],
       (e) => void events.push(e),
       undefined,
-      { model, tools: tools as never },
+      { model, tools },
     );
 
     // Paused after the first model call; the gated tool never ran.
@@ -348,7 +348,7 @@ describe('runAgent — tool approval', () => {
     const firstEvents: AgentEvent[] = [];
     await runAgent(approvalConfig, history, (e) => void firstEvents.push(e), undefined, {
       model: first.model,
-      tools: tools as never,
+      tools,
     });
     const paused = firstEvents.find((e) => e.type === 'run_paused');
     const request = firstEvents.find((e) => e.type === 'tool_approval_requested');
@@ -372,7 +372,7 @@ describe('runAgent — tool approval', () => {
     const secondEvents: AgentEvent[] = [];
     await runAgent(approvalConfig, resumed, (e) => void secondEvents.push(e), undefined, {
       model: second.model,
-      tools: tools as never,
+      tools,
     });
 
     expect(execute).toHaveBeenCalledTimes(1);
@@ -407,7 +407,7 @@ describe('runAgent — tool approval', () => {
     const firstEvents: AgentEvent[] = [];
     await runAgent(approvalConfig, history, (e) => void firstEvents.push(e), undefined, {
       model: first.model,
-      tools: tools as never,
+      tools,
     });
     const paused = firstEvents.find((e) => e.type === 'run_paused');
     const request = firstEvents.find((e) => e.type === 'tool_approval_requested');
@@ -429,7 +429,7 @@ describe('runAgent — tool approval', () => {
     const secondEvents: AgentEvent[] = [];
     await runAgent(approvalConfig, resumed, (e) => void secondEvents.push(e), undefined, {
       model: second.model,
-      tools: tools as never,
+      tools,
     });
 
     expect(execute).not.toHaveBeenCalled();
@@ -461,7 +461,7 @@ describe('runAgent — tool approval', () => {
       [{ role: 'user', content: 'go' }],
       (e) => void events.push(e),
       undefined,
-      { model, tools: tools as never },
+      { model, tools },
     );
 
     expect(execute).toHaveBeenCalledTimes(1);
@@ -503,7 +503,7 @@ describe('runAgent — token usage in final event', () => {
       [{ role: 'user', content: 'ping' }],
       (e) => void events.push(e),
       undefined,
-      { model, tools: tools as never },
+      { model, tools },
     );
 
     const final = events.find((e) => e.type === 'final');

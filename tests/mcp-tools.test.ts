@@ -1,3 +1,4 @@
+import { jsonSchema, type Tool } from 'ai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildMcpRegistry,
@@ -21,17 +22,23 @@ vi.mock('@ai-sdk/mcp/mcp-stdio', () => ({
   },
 }));
 
+import type { MCPClient } from '@ai-sdk/mcp';
 import { createMCPClient as createClient } from '@ai-sdk/mcp';
 
 interface FakeClient {
-  tools: () => Promise<Record<string, unknown>>;
+  tools: () => Promise<Record<string, Tool>>;
   close: () => Promise<void>;
   toolsCalls: number;
   closed: boolean;
 }
 
+// The fake implements only the slice of MCPClient the registry touches.
+function asMcpClient(c: FakeClient): MCPClient {
+  return c as unknown as MCPClient;
+}
+
 function fakeClient(
-  opts: { toolsResult?: Record<string, unknown>; toolsThrows?: Error; closeThrows?: Error } = {},
+  opts: { toolsResult?: Record<string, Tool>; toolsThrows?: Error; closeThrows?: Error } = {},
 ): FakeClient {
   // State lives on the returned object directly so tests can inspect mutations.
   const c: FakeClient = {
@@ -50,11 +57,11 @@ function fakeClient(
   return c;
 }
 
-function fakeTool(name: string, executeOutput: unknown = `${name}-result`) {
+function fakeTool(name: string, executeOutput: unknown = `${name}-result`): Tool {
   return {
     description: `${name} stub`,
-    inputSchema: {},
-    type: 'dynamic',
+    inputSchema: jsonSchema({ type: 'object', additionalProperties: true }),
+    type: 'dynamic' as const,
     async execute() {
       return executeOutput;
     },
@@ -95,7 +102,7 @@ describe('buildMcpRegistry', () => {
 
   it('discovers tools from a stdio server', async () => {
     const client = fakeClient({ toolsResult: { ping: fakeTool('ping') } });
-    vi.mocked(createClient).mockResolvedValueOnce(client as never);
+    vi.mocked(createClient).mockResolvedValueOnce(asMcpClient(client));
 
     const reg = await buildMcpRegistry(
       baseConfig({
@@ -111,7 +118,7 @@ describe('buildMcpRegistry', () => {
 
   it('discovers tools from an HTTP server', async () => {
     const client = fakeClient({ toolsResult: { search: fakeTool('search') } });
-    vi.mocked(createClient).mockResolvedValueOnce(client as never);
+    vi.mocked(createClient).mockResolvedValueOnce(asMcpClient(client));
 
     const reg = await buildMcpRegistry(
       baseConfig({
@@ -142,8 +149,8 @@ describe('buildMcpRegistry', () => {
     const a = fakeClient({ toolsResult: { shared: fakeTool('shared-a') } });
     const b = fakeClient({ toolsResult: { shared: fakeTool('shared-b') } });
     vi.mocked(createClient)
-      .mockResolvedValueOnce(a as never)
-      .mockResolvedValueOnce(b as never);
+      .mockResolvedValueOnce(asMcpClient(a))
+      .mockResolvedValueOnce(asMcpClient(b));
 
     await expect(
       buildMcpRegistry(
@@ -177,7 +184,7 @@ describe('buildMcpRegistry', () => {
 
   it('fails startup when an HTTP server cannot complete tool discovery', async () => {
     const client = fakeClient({ toolsThrows: new Error('connection refused') });
-    vi.mocked(createClient).mockResolvedValueOnce(client as never);
+    vi.mocked(createClient).mockResolvedValueOnce(asMcpClient(client));
 
     await expect(
       buildMcpRegistry(
@@ -206,8 +213,8 @@ describe('buildMcpRegistry', () => {
     });
     const b = fakeClient({ toolsResult: { tb: fakeTool('tb') } });
     vi.mocked(createClient)
-      .mockResolvedValueOnce(a as never)
-      .mockResolvedValueOnce(b as never);
+      .mockResolvedValueOnce(asMcpClient(a))
+      .mockResolvedValueOnce(asMcpClient(b));
 
     const reg = await buildMcpRegistry(
       baseConfig({
@@ -226,19 +233,15 @@ describe('buildMcpRegistry', () => {
 
 describe('wrapToolsWithSummarization', () => {
   it('passes a small MCP result through as a succeeded envelope', async () => {
-    const tool = {
-      description: 'echo',
-      inputSchema: {},
-      type: 'dynamic',
-      async execute() {
-        return { content: [{ type: 'text', text: 'hi there' }] };
-      },
-    };
+    const tool = fakeTool('echo', { content: [{ type: 'text', text: 'hi there' }] });
     const summarize = vi.fn();
-    const wrapped = wrapToolsWithSummarization({ echo: tool } as never, {
-      config: baseConfig(),
-      summarize,
-    });
+    const wrapped = wrapToolsWithSummarization(
+      { echo: tool },
+      {
+        config: baseConfig(),
+        summarize,
+      },
+    );
 
     const out = (await (
       wrapped.echo as { execute: (i: unknown, o: unknown) => Promise<unknown> }
@@ -253,19 +256,15 @@ describe('wrapToolsWithSummarization', () => {
 
   it('summarizes oversized MCP results and marks the envelope truncated', async () => {
     const big = 'X'.repeat(2000);
-    const tool = {
-      description: 'big',
-      inputSchema: {},
-      type: 'dynamic',
-      async execute() {
-        return { content: [{ type: 'text', text: big }] };
-      },
-    };
+    const tool = fakeTool('big', { content: [{ type: 'text', text: big }] });
     const summarize = vi.fn(async () => 'SUMMARY-OF-BIG');
-    const wrapped = wrapToolsWithSummarization({ big: tool } as never, {
-      config: baseConfig(),
-      summarize,
-    });
+    const wrapped = wrapToolsWithSummarization(
+      { big: tool },
+      {
+        config: baseConfig(),
+        summarize,
+      },
+    );
 
     const out = (await (
       wrapped.big as { execute: (i: unknown, o: unknown) => Promise<unknown> }
@@ -284,19 +283,15 @@ describe('wrapToolsWithSummarization', () => {
   });
 
   it('flags MCP results with isError as a failed envelope', async () => {
-    const tool = {
-      description: 'fail',
-      inputSchema: {},
-      type: 'dynamic',
-      async execute() {
-        return { content: [{ type: 'text', text: 'boom' }], isError: true };
-      },
-    };
+    const tool = fakeTool('fail', { content: [{ type: 'text', text: 'boom' }], isError: true });
     const summarize = vi.fn();
-    const wrapped = wrapToolsWithSummarization({ fail: tool } as never, {
-      config: baseConfig(),
-      summarize,
-    });
+    const wrapped = wrapToolsWithSummarization(
+      { fail: tool },
+      {
+        config: baseConfig(),
+        summarize,
+      },
+    );
 
     const out = (await (
       wrapped.fail as { execute: (i: unknown, o: unknown) => Promise<unknown> }
@@ -310,18 +305,14 @@ describe('wrapToolsWithSummarization', () => {
   // wrong place yields { value: undefined }, which fails prompt validation on
   // the next step.
   it('toModelOutput unwraps the v6 { output } envelope into clean text', async () => {
-    const tool = {
-      description: 'echo',
-      inputSchema: {},
-      type: 'dynamic',
-      async execute() {
-        return { content: [{ type: 'text', text: 'clean body' }] };
+    const tool = fakeTool('echo', { content: [{ type: 'text', text: 'clean body' }] });
+    const wrapped = wrapToolsWithSummarization(
+      { echo: tool },
+      {
+        config: baseConfig(),
+        summarize: vi.fn(),
       },
-    };
-    const wrapped = wrapToolsWithSummarization({ echo: tool } as never, {
-      config: baseConfig(),
-      summarize: vi.fn(),
-    });
+    );
 
     const w = wrapped.echo as unknown as {
       execute: (i: unknown, o: unknown) => Promise<unknown>;
