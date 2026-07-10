@@ -1,6 +1,7 @@
+import type { Server } from 'node:http';
 import { serve } from '@hono/node-server';
 import { buildMcpRegistry } from '../agent/tools/mcp.js';
-import { buildServer } from '../api/server.js';
+import { buildServer, positiveIntFromEnv } from '../api/server.js';
 import { loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
@@ -31,7 +32,6 @@ export async function runServe(): Promise<void> {
   let registry: Awaited<ReturnType<typeof buildMcpRegistry>>;
   try {
     registry = await buildMcpRegistry(config);
-
     logger.info(
       { tools: Object.keys(registry.tools).length, servers: config.mcpTools.length },
       'mcp registry ready',
@@ -46,16 +46,36 @@ export async function runServe(): Promise<void> {
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
     logger.info({ port: info.port }, 'configurable-agent listening');
-  });
+  }) as Server;
 
+  // Graceful shutdown: stop accepting connections and let in-flight requests
+  // (including SSE streams) drain; force-close whatever is still open after
+  // SHUTDOWN_TIMEOUT_MS so a long-running stream cannot block termination.
+  const shutdownTimeoutMs = positiveIntFromEnv('SHUTDOWN_TIMEOUT_MS', 10_000);
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info({ signal }, 'shutting down');
-    server.close();
+
+    const forceClose = setTimeout(() => {
+      logger.warn({ shutdownTimeoutMs }, 'shutdown timeout reached; closing open connections');
+      server.closeAllConnections();
+    }, shutdownTimeoutMs);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    clearTimeout(forceClose);
+
     await registry.cleanup();
     await shutdownTracing();
     process.exit(0);
   };
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+  const onSignal = (signal: string) => {
+    shutdown(signal).catch((err) => {
+      logger.error({ err }, 'shutdown failed');
+      process.exit(1);
+    });
+  };
+  process.once('SIGTERM', () => onSignal('SIGTERM'));
+  process.once('SIGINT', () => onSignal('SIGINT'));
 }

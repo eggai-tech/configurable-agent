@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { context, trace } from '@opentelemetry/api';
 import type { ModelMessage, ToolSet } from 'ai';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -7,6 +8,7 @@ import { runAgent } from '../agent/loop.js';
 import { probeModel, requiredEnvVarFor } from '../agent/model.js';
 import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
+import { parseTraceparent } from '../observability/tracing.js';
 import { InvokeRequestSchema } from './request.js';
 import { writeAgentEvent } from './sse.js';
 
@@ -18,9 +20,15 @@ export interface BuildServerOptions {
   tools: ToolSet;
 }
 
+export function positiveIntFromEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function buildServer(config: AgentConfig, options: BuildServerOptions) {
   const app = new Hono();
   const { tools } = options;
+  const tracer = trace.getTracer('configurable-agent');
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
@@ -29,7 +37,7 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
   // unreachable baseUrl, or an unknown model. The probe hits the provider, so
   // it is off by default to keep k8s readiness polling free.
   const deepProbeDefault = process.env.READINESS_DEEP_PROBE === '1';
-  const probeTimeoutMs = Number(process.env.READINESS_PROBE_TIMEOUT_MS ?? 5000);
+  const probeTimeoutMs = positiveIntFromEnv('READINESS_PROBE_TIMEOUT_MS', 5000);
 
   app.get('/ready', async (c) => {
     const requiredEnv = requiredEnvVarFor(config.model.provider);
@@ -69,51 +77,70 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
     const incoming = parsed.data.messages as ModelMessage[];
     const requestId = randomUUID();
     const startedAt = Date.now();
-    logger.info({ requestId, messages: incoming.length }, 'invoke started');
 
-    return streamSSE(c, async (stream) => {
-      const abortController = new AbortController();
-      const clientSignal = c.req.raw.signal;
-      if (clientSignal) {
-        clientSignal.addEventListener(
-          'abort',
-          () => {
-            abortController.abort();
-          },
-          { once: true },
-        );
-      }
-      stream.onAbort(() => {
-        abortController.abort();
-      });
+    // One span per request: incoming `traceparent` becomes the parent, the AI
+    // SDK model spans nest inside, and the logger mixin stamps every request
+    // log with the shared trace_id.
+    const parentSpanCtx = parseTraceparent(c.req.header('traceparent'));
+    const baseCtx = parentSpanCtx
+      ? trace.setSpanContext(context.active(), parentSpanCtx)
+      : context.active();
+    const span = tracer.startSpan('configurable-agent.invoke', undefined, baseCtx);
+    span.setAttribute('request.id', requestId);
+    const spanCtx = trace.setSpan(baseCtx, span);
 
-      // Emit wrapper: log agent-level errors server-side (they are otherwise
-      // only visible to the SSE client) and swallow write failures — once the
-      // client disconnects there is nothing left to send, and that is not an
-      // agent failure.
-      const emit = async (event: AgentEvent): Promise<void> => {
-        if (event.type === 'error') {
-          logger.error({ requestId, code: event.code, message: event.message }, 'agent error');
+    context.with(spanCtx, () =>
+      logger.info({ requestId, messages: incoming.length }, 'invoke started'),
+    );
+    c.header('x-request-id', requestId);
+
+    return streamSSE(c, (stream) =>
+      context.with(spanCtx, async () => {
+        const abortController = new AbortController();
+        const clientSignal = c.req.raw.signal;
+        if (clientSignal?.aborted) {
+          abortController.abort();
+        } else {
+          clientSignal?.addEventListener('abort', () => abortController.abort(), { once: true });
         }
+        stream.onAbort(() => abortController.abort());
+
+        // Emit wrapper: log agent-level errors server-side (they are otherwise
+        // only visible to the SSE client) and swallow write failures — once the
+        // client disconnects there is nothing left to send, and that is not an
+        // agent failure.
+        const emit = async (event: AgentEvent): Promise<void> => {
+          if (event.type === 'error') {
+            logger.error({ requestId, code: event.code, message: event.message }, 'agent error');
+          }
+          try {
+            await writeAgentEvent(stream, event);
+          } catch (err) {
+            logger.debug({ requestId, err }, 'failed to write SSE event (client disconnected?)');
+          }
+        };
+
         try {
-          await writeAgentEvent(stream, event);
+          await runAgent(config, incoming, emit, abortController.signal, { tools });
+          logger.info({ requestId, durationMs: Date.now() - startedAt }, 'invoke finished');
         } catch (err) {
-          logger.debug({ requestId, err }, 'failed to write SSE event (client disconnected?)');
+          logger.error({ requestId, err, durationMs: Date.now() - startedAt }, 'agent run failed');
+          // Deliberately generic: internal failure details stay in server logs.
+          try {
+            await writeAgentEvent(stream, {
+              type: 'error',
+              code: 'internal_error',
+              message: 'internal error — see server logs',
+              details: { requestId },
+            });
+          } catch {
+            // client already gone
+          }
+        } finally {
+          span.end();
         }
-      };
-
-      try {
-        await runAgent(config, incoming, emit, abortController.signal, { tools });
-        logger.info({ requestId, durationMs: Date.now() - startedAt }, 'invoke finished');
-      } catch (err) {
-        logger.error({ requestId, err, durationMs: Date.now() - startedAt }, 'agent run failed');
-        await emit({
-          type: 'error',
-          code: 'internal_error',
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-    });
+      }),
+    );
   });
 
   return app;
