@@ -1,5 +1,6 @@
 import { context, type SpanContext, trace } from '@opentelemetry/api';
 import type { LanguageModel, ModelMessage } from 'ai';
+import { z } from 'zod';
 import { type AgentEvent, runAgent } from '../agent/loop.js';
 import { buildMcpRegistry } from '../agent/tools/mcp.js';
 import { InvokeRequestSchema } from '../api/request.js';
@@ -53,9 +54,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 
   const validated = InvokeRequestSchema.safeParse(parsedBody);
   if (!validated.success) {
-    opts.stderr.write(
-      `stdin failed schema validation: ${JSON.stringify(validated.error.format())}\n`,
-    );
+    opts.stderr.write(`stdin failed schema validation:\n${z.prettifyError(validated.error)}\n`);
     return 2;
   }
 
@@ -78,7 +77,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
   try {
     const record = await executeRun(
       config,
-      validated.data.messages as ModelMessage[],
+      validated.data.messages,
       opts.modelOverride,
       parentSpanCtx,
     );

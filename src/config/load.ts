@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Ajv } from 'ajv';
 import ajvFormatsPkg from 'ajv-formats';
 import { parse as parseYaml } from 'yaml';
+import { z } from 'zod';
 
 // ajv-formats is CJS with `export default`; NodeNext resolution types the default import
 // as the module namespace. Grab the real callable plugin from `.default` when present.
@@ -42,7 +43,10 @@ export function loadConfig(path: string): AgentConfig {
 
   const result = AgentConfigSchema.safeParse(parsed);
   if (!result.success) {
-    throw new ConfigError('config failed validation', result.error.format());
+    throw new ConfigError(
+      `config failed validation:\n${z.prettifyError(result.error)}`,
+      z.treeifyError(result.error),
+    );
   }
 
   if (result.data.output.structured) {

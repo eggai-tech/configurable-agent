@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { context, trace } from '@opentelemetry/api';
-import type { ModelMessage, ToolSet } from 'ai';
+import type { ToolSet } from 'ai';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import { z } from 'zod';
 import type { AgentEvent } from '../agent/events.js';
 import { runAgent } from '../agent/loop.js';
 import { probeModel, requiredEnvVarFor } from '../agent/model.js';
@@ -71,10 +72,17 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
 
     const parsed = InvokeRequestSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: 'invalid_request', details: parsed.error.format() }, 400);
+      return c.json(
+        {
+          error: 'invalid_request',
+          message: z.prettifyError(parsed.error),
+          details: z.treeifyError(parsed.error),
+        },
+        400,
+      );
     }
 
-    const incoming = parsed.data.messages as ModelMessage[];
+    const incoming = parsed.data.messages;
     const requestId = randomUUID();
     const startedAt = Date.now();
 
