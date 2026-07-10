@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a minimal provider call to verify credentials, base URL, and model, catching
   failures the env-var presence check cannot
 - End-user documentation guide at `docs/user-guide.md`
+- `run_paused` SSE event carrying the paused run's messages, so a stateless
+  client can faithfully resume after a tool-approval decision
+- Log/trace correlation: JSON logs include `trace_id`/`span_id`/`trace_flags`
+  of the active span plus `service.name`/`service.version`; each `/invoke`
+  request runs in its own span (parented on an incoming `traceparent`) and
+  returns an `x-request-id` header
+- `OTEL_RECORD_CONTENT=0` strips prompts/tool contents from exported spans
+- `SHUTDOWN_TIMEOUT_MS` bounds the graceful-shutdown drain
 
 ### Changed
 - Upgraded the `ai` SDK family to v7 and all other dependencies to their latest
@@ -26,8 +34,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI SDK telemetry now flows through `@ai-sdk/otel`, registered at startup
 - Logs are written to stderr (stdout is reserved for the CLI `run` record)
 - README reorganized into a short landing page plus the user guide
+- The agent loop uses the AI SDK's built-in multi-step execution (`stopWhen` +
+  `prepareStep`) in a single `streamText` call; structured output is generated
+  natively via `output: Output.object()` instead of a separate `generateObject`
+  pass (its tokens now count toward the reported usage)
+- Context size is estimated with a chars/4 heuristic; the 55 MB `gpt-tokenizer`
+  dependency was removed
+- stdio MCP servers receive only their configured `env` (plus a minimal safe
+  set such as `PATH`), no longer the full service environment with provider
+  API keys — pass specific variables through explicitly with `${VAR}`
+- Graceful shutdown: in-flight requests drain (bounded by `SHUTDOWN_TIMEOUT_MS`)
+  before the process exits
+- The compaction summary is injected as a user message (provider-safe when the
+  kept window starts with an assistant message)
 
 ### Fixed
+- Context compaction now fires for tool-call-heavy histories; previously the
+  split point required a user message inside the recent window, so agentic runs
+  never compacted and eventually exceeded the provider context limit
+- Provider errors are sanitized before reaching SSE clients: no more raw
+  request bodies (prompts/system prompt) or provider response bodies/headers;
+  the 429 path emits only rate-limit headers. Server logs use a whitelist
+  error serializer for the same reason
+- `safety.toolOutput.tailChars: 0` no longer leaks the entire raw oversized
+  tool output
+- The CLI `run` record can no longer be truncated by process exit on a
+  backpressured stdout pipe, and an approval-paused run reports an explicit
+  "run halted waiting for tool approval" error instead of an empty failure
+- Client aborts are detected via the abort signal instead of matching "abort"
+  in error messages, which silently swallowed real failures
+- A non-numeric `READINESS_PROBE_TIMEOUT_MS` no longer turns every deep
+  readiness probe into a 500
+- `OTEL_ENABLED=0`/`false` no longer enables tracing
 - CLI `--version` now reports the real package version (was hard-coded)
 - `serve` handles an invalid config gracefully — it logs and exits instead of
   crashing past the top-level handler and leaking the tracing SDK

@@ -47,8 +47,9 @@ mcpTools: []
 #     transport: stdio
 #     command: accounts-mcp
 #     args: []
-#     env:
-#       ACCOUNTS_URL: http://accounts:8080
+#     env:                      # child gets ONLY these vars (+ PATH/HOME/...),
+#       ACCOUNTS_URL: http://accounts:8080   # never the service's environment;
+#       MY_TOKEN: ${MY_TOKEN}                # use ${VAR} to pass one through
 #
 # Example HTTP server (remote MCP service):
 # mcpTools:

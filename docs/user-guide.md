@@ -155,7 +155,10 @@ servers under `mcpTools`. Each is connected at startup and its tools are exposed
 to the model:
 
 - **stdio** — a local command: `transport: stdio`, with `command`, optional
-  `args`, `cwd`, and `env`.
+  `args`, `cwd`, and `env`. The child process receives only the configured
+  `env` plus a minimal safe set (`PATH`, `HOME`, …) — never the service's full
+  environment, which holds provider API keys. To pass a specific variable
+  through, reference it explicitly, e.g. `MY_TOKEN: ${MY_TOKEN}`.
 - **http** — a remote server: `transport: http`, with `url` and optional
   `headers`.
 
@@ -254,6 +257,7 @@ in favor of the configured `systemPrompt`.
 | `tool_call` | `{ id, name, args }` | The model invoked a tool. |
 | `tool_result` | `{ id, output }` | A tool finished; `output` is a [result envelope](#tool-result-envelope). |
 | `tool_approval_requested` | `{ id, approvalId, name, args, signature? }` | A tool call is waiting for human approval. |
+| `run_paused` | `{ reason, messages }` | The run paused (e.g. for approval); `messages` are appended to the history when resuming. |
 | `compaction_start` / `compaction_finished` | sizes | Conversation compaction ran. |
 | `final` | `{ content, structured?, stopReason, steps }` | The run finished; `structured` is present in structured-output mode. |
 | `error` | `{ code, message, details? }` | The run ended with an error. |
@@ -278,6 +282,7 @@ The `output` of every `tool_result` has this shape:
   args: unknown,           // the input the tool was called with
   duration_ms: number,
   truncated?: boolean,     // true when content was summarized
+  // only 'user_denied' is currently produced; the other values are reserved
   denied_reason?: 'policy_deny' | 'user_denied' | 'policy_compound',
 }
 ```
@@ -286,10 +291,13 @@ The `output` of every `tool_result` has this shape:
 
 When approval is enabled and the model calls a gated tool, the run pauses:
 
-1. You receive a `tool_approval_requested` event and the response ends. The tool
-   has **not** run.
-2. Get a decision from a human, then send a new `/invoke` request with the **same
-   messages** plus a `tool` message carrying the decision:
+1. You receive a `tool_approval_requested` event, then a `run_paused` event
+   whose `messages` array contains everything the agent produced so far this
+   run (including the assistant message that carries the approval request),
+   and the response ends. The tool has **not** run.
+2. Get a decision from a human, then send a new `/invoke` request with the
+   **same messages**, followed by the `messages` from the `run_paused` event
+   verbatim, followed by a `tool` message carrying the decision:
 
    ```jsonc
    {
@@ -358,10 +366,17 @@ Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 ## Observability
 
 - **Logs** — structured JSON via [pino](https://getpino.io), written to stderr.
-  Set the level with `LOG_LEVEL`.
+  Set the level with `LOG_LEVEL`. Every line carries `service.name` /
+  `service.version` and, when a trace is active, the OpenTelemetry correlation
+  fields `trace_id`, `span_id`, and `trace_flags` — so logs can be joined with
+  traces in your backend.
 - **Traces** — OpenTelemetry starts automatically when
-  `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED`) is set. HTTP calls and model
-  calls are traced; spans export over OTLP.
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED`) is set. Each `/invoke`
+  request gets its own span (parented on an incoming `traceparent` header, and
+  echoed as an `x-request-id` response header), with the model-call spans
+  nested inside. Model spans record prompts, tool arguments, and outputs by
+  default so eval tooling can inspect runs; set `OTEL_RECORD_CONTENT=0` to
+  export metadata (model, token usage, latency) only.
 
 ## Environment variables
 
@@ -375,5 +390,7 @@ Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 | `TOOL_APPROVAL_SECRET` | — | Signs tool-approval requests. Set this whenever approval is enabled. |
 | `READINESS_DEEP_PROBE` | `0` | Set to `1` to make `/ready` run the provider probe by default (otherwise opt in with `?deep=1`). |
 | `READINESS_PROBE_TIMEOUT_MS` | `5000` | Timeout for the `/ready` provider probe. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_ENABLED` | — | Enable OpenTelemetry tracing. |
-| `OTEL_SERVICE_NAME` · `OTEL_SERVICE_VERSION` | `configurable-agent` / version | Trace resource attributes. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_ENABLED` | — | Enable OpenTelemetry tracing (`OTEL_ENABLED=0`/`false` count as off). |
+| `OTEL_SERVICE_NAME` · `OTEL_SERVICE_VERSION` | `configurable-agent` / version | Service identity, shared by traces and log lines. |
+| `OTEL_RECORD_CONTENT` | `1` | Set to `0` to strip prompts/tool contents from exported spans (metadata only). |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` | How long a shutdown waits for in-flight requests before force-closing connections. |
