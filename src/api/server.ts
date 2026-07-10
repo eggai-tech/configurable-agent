@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { AgentEvent } from '../agent/events.js';
 import { runAgent } from '../agent/loop.js';
-import { requiredEnvVarFor } from '../agent/model.js';
+import { probeModel, requiredEnvVarFor } from '../agent/model.js';
 import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
 import { InvokeRequestSchema } from './request.js';
@@ -24,11 +24,32 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
-  app.get('/ready', (c) => {
+  // Cheap presence check by default; opt into an active provider probe with
+  // `?deep=1` (or READINESS_DEEP_PROBE=1) to also catch bad credentials, an
+  // unreachable baseUrl, or an unknown model. The probe hits the provider, so
+  // it is off by default to keep k8s readiness polling free.
+  const deepProbeDefault = process.env.READINESS_DEEP_PROBE === '1';
+  const probeTimeoutMs = Number(process.env.READINESS_PROBE_TIMEOUT_MS ?? 5000);
+
+  app.get('/ready', async (c) => {
     const requiredEnv = requiredEnvVarFor(config.model.provider);
     if (requiredEnv && !process.env[requiredEnv]) {
       return c.json({ status: 'not_ready', reason: `${requiredEnv} is not set` }, 503);
     }
+
+    const deep = c.req.query('deep') === '1' || deepProbeDefault;
+    if (deep) {
+      const probe = await probeModel(config.model, AbortSignal.timeout(probeTimeoutMs));
+      if (!probe.ok) {
+        logger.warn({ error: probe.error }, 'readiness deep probe failed');
+        return c.json(
+          { status: 'not_ready', reason: 'provider probe failed', error: probe.error },
+          503,
+        );
+      }
+      return c.json({ status: 'ok', probe: 'passed' });
+    }
+
     return c.json({ status: 'ok' });
   });
 

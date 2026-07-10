@@ -21,6 +21,19 @@ export type AgentEvent =
   | { type: 'reasoning'; text: string }
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | { type: 'tool_result'; id: string; output: ToolResult }
+  | {
+      // A tool call requires human approval before it can execute. The run
+      // pauses; the client resolves it by appending a `tool-approval-response`
+      // (a `tool`-role message) to the history and re-POSTing. `signature` is
+      // present only when TOOL_APPROVAL_SECRET is configured and must be echoed
+      // back verbatim in the response.
+      type: 'tool_approval_requested';
+      id: string;
+      approvalId: string;
+      name: string;
+      args: unknown;
+      signature?: string;
+    }
   | { type: 'content_delta'; text: string }
   | {
       type: 'compaction_start';

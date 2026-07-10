@@ -2,8 +2,9 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModel } from 'ai';
+import { generateText, type LanguageModel } from 'ai';
 import type { AgentConfig } from '../config/schema.js';
+import { errorMessage } from '../util.js';
 
 export function buildModel(cfg: AgentConfig['model']): LanguageModel {
   switch (cfg.provider) {
@@ -24,6 +25,35 @@ export function buildModel(cfg: AgentConfig['model']): LanguageModel {
       const compat = createOpenAICompatible({ name: 'openai-compatible', baseURL, apiKey });
       return compat(cfg.name);
     }
+  }
+}
+
+export interface ProbeResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Actively verify the configured model is reachable and authorized by issuing a
+ * single minimal generation. Catches failure modes that a presence-of-env-var
+ * check cannot — a wrong/revoked key, an unreachable or malformed `baseUrl`, an
+ * unknown model name. Used by the `/ready` deep probe; intentionally opt-in
+ * because each call hits the provider.
+ */
+export async function probeModel(
+  cfg: AgentConfig['model'],
+  signal?: AbortSignal,
+): Promise<ProbeResult> {
+  try {
+    await generateText({
+      model: buildModel(cfg),
+      prompt: 'ping',
+      maxOutputTokens: 1,
+      abortSignal: signal,
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
   }
 }
 

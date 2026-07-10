@@ -73,10 +73,22 @@ export const AgentConfigSchema = z
             tailChars: z.number().int().nonnegative().default(500),
           })
           .default({ triggerTokens: 4_000, headChars: 500, tailChars: 500 }),
+        approval: z
+          .object({
+            // 'none' — no tool ever needs approval (default).
+            // 'all'  — every model-invoked tool needs human approval.
+            // 'selected' — only tools whose name matches a `tools` pattern.
+            mode: z.enum(['none', 'all', 'selected']).default('none'),
+            // Glob-style name patterns (`*` wildcard), used when mode is
+            // 'selected', e.g. "delete_*", "send_email".
+            tools: z.array(z.string()).default([]),
+          })
+          .default({ mode: 'none', tools: [] }),
       })
       .default({
         compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
         toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+        approval: { mode: 'none', tools: [] },
       }),
     evals: z
       .object({

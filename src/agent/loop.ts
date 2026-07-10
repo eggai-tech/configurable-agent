@@ -13,6 +13,7 @@ import {
 } from 'ai';
 import type { AgentConfig } from '../config/schema.js';
 import { errorMessage, safeJson } from '../util.js';
+import { toolNeedsApproval } from './approval.js';
 import type { AgentEmitter, ToolResult } from './events.js';
 import { buildModel } from './model.js';
 import { renderSystemPrompt } from './prompt.js';
@@ -70,6 +71,18 @@ export async function runAgent(
     todowrite: createTodoWriteTool(todoStore),
   };
 
+  // Human-in-the-loop approval. When enabled, gated tool calls surface a
+  // `tool-approval-request` instead of executing; the run pauses and the client
+  // resolves it on the next request. `TOOL_APPROVAL_SECRET` (optional) HMAC-signs
+  // approvals so a client cannot forge one for the stateless /invoke history.
+  const approval = config.safety.approval;
+  const toolApproval =
+    approval.mode === 'none'
+      ? undefined
+      : ({ toolCall }: { toolCall: { toolName: string } }) =>
+          toolNeedsApproval(toolCall.toolName, approval) ? ('user-approval' as const) : undefined;
+  const toolApprovalSecret = process.env.TOOL_APPROVAL_SECRET;
+
   try {
     let finishReason: FinishReason | 'unknown' = 'unknown';
     let lastText = '';
@@ -91,6 +104,8 @@ export async function runAgent(
         // stripped in prepareMessages, so opting in here is safe.
         allowSystemInMessages: true,
         tools,
+        toolApproval,
+        experimental_toolApprovalSecret: toolApprovalSecret,
         stopWhen: isStepCount(1),
         toolChoice: isLastStep ? ('none' as const) : undefined,
         temperature: config.model.temperature,
@@ -103,6 +118,7 @@ export async function runAgent(
       });
 
       let stepHasToolCalls = false;
+      let stepHadApprovalRequest = false;
       let stepText = '';
 
       for await (const part of stream.stream) {
@@ -145,6 +161,50 @@ export async function runAgent(
             await emit({ type: 'tool_result', id: part.toolCallId, output: envelope });
             break;
           }
+          case 'tool-approval-request': {
+            stepHadApprovalRequest = true;
+            await emit({
+              type: 'tool_approval_requested',
+              id: part.toolCall.toolCallId,
+              approvalId: part.approvalId,
+              name: part.toolCall.toolName,
+              args: part.toolCall.input,
+              ...(part.signature ? { signature: part.signature } : {}),
+            });
+            // Also surface the standard envelope so consumers of `tool_result`
+            // see the pending state (spec 003: status 'approval_required').
+            await emit({
+              type: 'tool_result',
+              id: part.toolCall.toolCallId,
+              output: {
+                label: part.toolCall.toolName,
+                status: 'approval_required',
+                content: 'Awaiting human approval before this tool can execute.',
+                return_code: null,
+                args: part.toolCall.input,
+                duration_ms: 0,
+              },
+            });
+            break;
+          }
+          case 'tool-output-denied': {
+            // Our policy only ever asks for user approval (never auto-denies),
+            // so a denied output always means a human declined the call.
+            await emit({
+              type: 'tool_result',
+              id: part.toolCallId,
+              output: {
+                label: part.toolName,
+                status: 'denied',
+                denied_reason: 'user_denied',
+                content: 'Tool execution was denied by a human reviewer.',
+                return_code: null,
+                args: undefined,
+                duration_ms: 0,
+              },
+            });
+            break;
+          }
           case 'error': {
             const cause = RetryError.isInstance(part.error) ? part.error.lastError : part.error;
             if (APICallError.isInstance(cause) && cause.statusCode === 429) {
@@ -182,6 +242,14 @@ export async function runAgent(
       const stepUsage = await stream.usage;
       totalInputTokens += stepUsage.inputTokens ?? 0;
       totalOutputTokens += stepUsage.outputTokens ?? 0;
+
+      if (stepHadApprovalRequest) {
+        // The turn is not finished — it is paused for human approval. The
+        // assistant message carrying the approval request is now in `messages`;
+        // the client re-POSTs the history plus a tool-approval-response to
+        // resume. Emit no `final` (there is no answer yet).
+        return;
+      }
 
       const diagnosis = diagnoseStep({
         finishReason: String(finishReason),

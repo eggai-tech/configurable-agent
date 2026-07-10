@@ -15,6 +15,7 @@ function cfg(overrides: Partial<AgentConfig['safety']['compaction']> = {}): Agen
     safety: {
       compaction: { triggerTokens: 100, keepRecentMessages: 2, ...overrides },
       toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+      approval: { mode: 'none', tools: [] },
     },
   };
 }

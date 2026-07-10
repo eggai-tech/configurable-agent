@@ -17,6 +17,7 @@ function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     safety: {
       compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
       toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+      approval: { mode: 'none', tools: [] },
     },
     ...overrides,
   };
@@ -185,6 +186,7 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
           compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
           // small thresholds force summarization on `big`
           toolOutput: { triggerTokens: 50, headChars: 20, tailChars: 20 },
+          approval: { mode: 'none', tools: [] },
         },
       }),
       [{ role: 'user', content: 'fetch huge thing' }],
@@ -264,6 +266,84 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
 
     // Same tool object was used both times — execute fires once per request.
     expect(execute).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('runAgent — tool approval', () => {
+  it('pauses for human approval instead of executing a gated tool', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text', text: 'ran' }] }));
+    const tools = {
+      guarded: {
+        description: 'guarded',
+        inputSchema: jsonSchema({ type: 'object', properties: {}, additionalProperties: true }),
+        type: 'dynamic' as const,
+        execute,
+      },
+    };
+
+    // Only one stream is queued: if the loop wrongly continued past the pause,
+    // multiStepModel would throw "no stream queued for call #2".
+    const { model, calls } = multiStepModel([toolCallStream('guarded', { x: 1 })]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig({
+        safety: {
+          compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
+          toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+          approval: { mode: 'all', tools: [] },
+        },
+      }),
+      [{ role: 'user', content: 'do the thing' }],
+      (e) => void events.push(e),
+      undefined,
+      { model, tools: tools as never },
+    );
+
+    // Paused after the first model call; the gated tool never ran.
+    expect(calls).toHaveLength(1);
+    expect(execute).not.toHaveBeenCalled();
+
+    const approval = events.find((e) => e.type === 'tool_approval_requested');
+    if (approval?.type !== 'tool_approval_requested') throw new Error('no approval event emitted');
+    expect(approval.name).toBe('guarded');
+    expect(approval.approvalId).toBeTruthy();
+
+    // The standard envelope also reflects the pending state (spec 003).
+    const pending = events.find(
+      (e) => e.type === 'tool_result' && e.output.status === 'approval_required',
+    );
+    expect(pending).toBeDefined();
+
+    // The turn is not finished — no final answer yet.
+    expect(events.some((e) => e.type === 'final')).toBe(false);
+  });
+
+  it('does not gate tools when approval mode is none', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text', text: 'pong' }] }));
+    const tools = {
+      ping: {
+        description: 'ping',
+        inputSchema: jsonSchema({ type: 'object', properties: {}, additionalProperties: true }),
+        type: 'dynamic' as const,
+        execute,
+      },
+    };
+
+    const { model } = multiStepModel([toolCallStream('ping', {}), textStream('ok')]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig(),
+      [{ role: 'user', content: 'go' }],
+      (e) => void events.push(e),
+      undefined,
+      { model, tools: tools as never },
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.type === 'tool_approval_requested')).toBe(false);
+    expect(events.some((e) => e.type === 'final')).toBe(true);
   });
 });
 
