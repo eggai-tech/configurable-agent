@@ -15,9 +15,10 @@ export interface ToolResult {
   denied_reason?: DeniedReason;
 }
 
+// Exact, estimation-free sizes: message count and total content characters.
 export interface SizeSnapshot {
-  tokens: number;
   messages: number;
+  chars: number;
 }
 
 export type AgentEvent =

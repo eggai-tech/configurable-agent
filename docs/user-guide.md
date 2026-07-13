@@ -96,10 +96,10 @@ mcpTools:                       # external MCP servers (optional)
 
 safety:
   compaction:                   # summarize old turns when the history grows large
-    triggerTokens: 100000
+    triggerTokens: 100000       # provider-reported tokens, not an estimate
     keepRecentMessages: 6
   toolOutput:                   # summarize oversized tool results
-    triggerTokens: 4000
+    triggerChars: 16000
     headChars: 500
     tailChars: 500
   approval:                     # require human approval for tool calls
@@ -195,16 +195,22 @@ These features run automatically to keep long or noisy runs reliable.
 
 #### Conversation compaction
 
-When the conversation grows beyond `compaction.triggerTokens`, older turns are
-summarized into a compact note while the most recent `keepRecentMessages` are
-kept verbatim. Emits `compaction_start` and `compaction_finished` events.
+When the provider reports that a step's input exceeded `compaction.triggerTokens`,
+older turns are summarized into a compact note while the most recent
+`keepRecentMessages` are kept verbatim. The trigger compares the **real token
+usage from the provider's response** — there is no local token estimation.
+Because usage arrives with each response, compaction never fires before the
+first step, and it stays off if a provider does not report usage. Emits
+`compaction_start` and `compaction_finished` events with exact sizes
+(`messages`, `chars`).
 
 #### Tool-output summarization
 
-When a tool returns more than `toolOutput.triggerTokens` of output, it is
-replaced with a short summary plus the first `headChars` and last `tailChars` of
-the raw output. The summarized form (marked `truncated: true`) is what the model
-sees on the next step, so one huge result can't blow the context budget.
+When a tool returns more than `toolOutput.triggerChars` characters of output,
+it is replaced with a short summary plus the first `headChars` and last
+`tailChars` of the raw output. The summarized form (marked `truncated: true`)
+is what the model sees on the next step, so one huge result can't blow the
+context budget.
 
 #### Tool approval (human-in-the-loop)
 

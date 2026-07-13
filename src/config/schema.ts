@@ -77,6 +77,8 @@ export const AgentConfigSchema = z
       .strictObject({
         compaction: z
           .strictObject({
+            // Compared against the provider-reported input-token usage of the
+            // previous step — real tokens, not an estimate.
             triggerTokens: z
               .number()
               .int('safety.compaction.triggerTokens must be a positive integer')
@@ -91,11 +93,13 @@ export const AgentConfigSchema = z
           .prefault({}),
         toolOutput: z
           .strictObject({
-            triggerTokens: z
+            // Exact character threshold — tool outputs larger than this are
+            // summarized before entering the conversation history.
+            triggerChars: z
               .number()
-              .int('safety.toolOutput.triggerTokens must be a positive integer')
-              .positive('safety.toolOutput.triggerTokens must be a positive integer')
-              .default(4_000),
+              .int('safety.toolOutput.triggerChars must be a positive integer')
+              .positive('safety.toolOutput.triggerChars must be a positive integer')
+              .default(16_000),
             headChars: z
               .number()
               .int('safety.toolOutput.headChars must be a non-negative integer')

@@ -3,7 +3,6 @@ import { logger } from '../../observability/logger.js';
 import { errorMessage } from '../../util.js';
 import type { ToolResult } from '../events.js';
 import type { Summarizer } from './compaction.js';
-import { countTextTokens } from './tokens.js';
 
 export interface ToolSummaryRuntime {
   config: AgentConfig;
@@ -19,9 +18,8 @@ export async function maybeSummarizeToolOutput(
   toolName: string,
   ctx: ToolSummaryRuntime,
 ): Promise<ToolResult> {
-  const rawTokens = countTextTokens(envelope.content);
-  const { triggerTokens, headChars, tailChars } = ctx.config.safety.toolOutput;
-  if (rawTokens <= triggerTokens) {
+  const { triggerChars, headChars, tailChars } = ctx.config.safety.toolOutput;
+  if (envelope.content.length <= triggerChars) {
     return envelope;
   }
 

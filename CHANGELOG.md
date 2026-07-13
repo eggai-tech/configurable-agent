@@ -53,8 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `prepareStep`) in a single `streamText` call; structured output is generated
   natively via `output: Output.object()` instead of a separate `generateObject`
   pass (its tokens now count toward the reported usage)
-- Context size is estimated with a chars/4 heuristic; the 55 MB `gpt-tokenizer`
-  dependency was removed
+- Local token estimation is gone entirely (the 55 MB `gpt-tokenizer`
+  dependency and its chars/4 replacement): conversation compaction now
+  triggers on the **provider-reported input-token usage** of the previous
+  step (`safety.compaction.triggerTokens` compares real tokens), and tool
+  output is gated on exact size via `safety.toolOutput.triggerChars`
+  (replaces `toolOutput.triggerTokens`; default 16000 chars — the same
+  effective threshold). Compaction events report exact `{ messages, chars }`
+  sizes; compaction stays off for providers that do not report usage
 - Dependency hygiene: removed unused `shell-quote`, `@types/shell-quote`, and
   `msw`; removed the redundant direct `vite` (vitest provides it); added a
   `test:coverage` script wiring the existing `@vitest/coverage-v8`

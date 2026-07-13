@@ -93,9 +93,12 @@ export async function runAgent(
       toolApproval,
       experimental_toolApprovalSecret: process.env.TOOL_APPROVAL_SECRET,
       stopWhen: stepCountIs(maxSteps),
-      prepareStep: async ({ stepNumber, messages: stepMessages }) => ({
+      prepareStep: async ({ stepNumber, steps: priorSteps, messages: stepMessages }) => ({
         messages: await maybeCompactMessages({
           messages: stepMessages,
+          // Real provider-counted size of the previous step's prompt — the
+          // compaction trigger never relies on a local token estimate.
+          lastInputTokens: priorSteps.at(-1)?.usage.inputTokens,
           config,
           summarize,
           emit,

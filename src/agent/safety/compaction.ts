@@ -2,8 +2,7 @@ import type { ModelMessage } from 'ai';
 import type { AgentConfig } from '../../config/schema.js';
 import { logger } from '../../observability/logger.js';
 import { errorMessage } from '../../util.js';
-import type { AgentEmitter } from '../events.js';
-import { countMessagesTokens, stringifyMessageContent } from './tokens.js';
+import type { AgentEmitter, SizeSnapshot } from '../events.js';
 
 export type Summarizer = (prompt: string) => Promise<string>;
 
@@ -11,6 +10,13 @@ export const COMPACTION_MARKER = '[COMPACTED CONTEXT]';
 
 interface CompactionInputs {
   messages: ModelMessage[];
+  /**
+   * Provider-reported input-token count of the previous step. This is the
+   * real size of the conversation as the provider counted it — no estimation.
+   * Undefined on the first step (nothing sent yet) or when the provider does
+   * not report usage; compaction then stays off.
+   */
+  lastInputTokens: number | undefined;
   config: AgentConfig;
   summarize: Summarizer;
   emit: AgentEmitter;
@@ -19,13 +25,13 @@ interface CompactionInputs {
 
 export async function maybeCompactMessages({
   messages,
+  lastInputTokens,
   config,
   summarize,
   emit,
   abortSignal,
 }: CompactionInputs): Promise<ModelMessage[]> {
-  const beforeTokens = countMessagesTokens(messages);
-  if (beforeTokens <= config.safety.compaction.triggerTokens) {
+  if (lastInputTokens === undefined || lastInputTokens <= config.safety.compaction.triggerTokens) {
     return messages;
   }
 
@@ -38,10 +44,7 @@ export async function maybeCompactMessages({
   const earlier = compactable.slice(0, split);
   const recent = compactable.slice(split);
 
-  await emit({
-    type: 'compaction_start',
-    before: { tokens: beforeTokens, messages: messages.length },
-  });
+  await emit({ type: 'compaction_start', before: snapshot(messages) });
 
   const earlierText = earlier
     .map((m, i) => `--- message ${i + 1} (${m.role}) ---\n${stringifyMessageContent(m)}`)
@@ -59,8 +62,9 @@ export async function maybeCompactMessages({
   ].join('\n');
 
   // A summarizer outage must not abort an otherwise-healthy run. Fall back to
-  // dropping the earlier turns without a summary: context is lost, but tokens
-  // still shrink so the loop makes progress instead of failing every step.
+  // dropping the earlier turns without a summary: context is lost, but the
+  // history still shrinks so the loop makes progress instead of failing every
+  // step.
   let summary: string;
   try {
     summary = await summarize(summaryPrompt);
@@ -86,16 +90,46 @@ export async function maybeCompactMessages({
     summaryMessage,
     ...recent,
   ];
-  const afterTokens = countMessagesTokens(newMessages);
 
   await emit({
     type: 'compaction_finished',
-    before: { tokens: beforeTokens, messages: messages.length },
-    after: { tokens: afterTokens, messages: newMessages.length },
+    before: snapshot(messages),
+    after: snapshot(newMessages),
     droppedCount: earlier.length,
   });
 
   return newMessages;
+}
+
+// Exact sizes for the observability events: message count and total content
+// characters. No token estimation — the compaction trigger itself compares
+// the provider-reported usage.
+function snapshot(messages: ReadonlyArray<ModelMessage>): SizeSnapshot {
+  let chars = 0;
+  for (const msg of messages) {
+    chars += stringifyMessageContent(msg).length;
+  }
+  return { messages: messages.length, chars };
+}
+
+export function stringifyMessageContent(msg: ModelMessage): string {
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.content)) {
+    return msg.content.map((p) => stringifyPart(p)).join('\n');
+  }
+  return JSON.stringify(msg.content);
+}
+
+function stringifyPart(part: unknown): string {
+  if (
+    part &&
+    typeof part === 'object' &&
+    'text' in part &&
+    typeof (part as { text: unknown }).text === 'string'
+  ) {
+    return (part as { text: string }).text;
+  }
+  return JSON.stringify(part);
 }
 
 function splitBaseSystem(messages: ModelMessage[]): {

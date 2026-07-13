@@ -13,7 +13,7 @@ function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-      toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+      toolOutput: { triggerChars: 16_000, headChars: 500, tailChars: 500 },
       approval: { mode: 'none', tools: [] },
     },
     ...overrides,

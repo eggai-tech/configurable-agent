@@ -16,7 +16,7 @@ function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-      toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+      toolOutput: { triggerChars: 16_000, headChars: 500, tailChars: 500 },
       approval: { mode: 'none', tools: [] },
     },
     ...overrides,
@@ -185,7 +185,7 @@ describe('runAgent — MCP tool summarization in the real loop', () => {
         safety: {
           compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
           // small thresholds force summarization on `big`
-          toolOutput: { triggerTokens: 50, headChars: 20, tailChars: 20 },
+          toolOutput: { triggerChars: 200, headChars: 20, tailChars: 20 },
           approval: { mode: 'none', tools: [] },
         },
       }),
@@ -290,7 +290,7 @@ describe('runAgent — tool approval', () => {
       baseConfig({
         safety: {
           compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-          toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+          toolOutput: { triggerChars: 16_000, headChars: 500, tailChars: 500 },
           approval: { mode: 'all', tools: [] },
         },
       }),
@@ -337,7 +337,7 @@ describe('runAgent — tool approval', () => {
     const approvalConfig = baseConfig({
       safety: {
         compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-        toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+        toolOutput: { triggerChars: 16_000, headChars: 500, tailChars: 500 },
         approval: { mode: 'all', tools: [] },
       },
     });
@@ -397,7 +397,7 @@ describe('runAgent — tool approval', () => {
     const approvalConfig = baseConfig({
       safety: {
         compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-        toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+        toolOutput: { triggerChars: 16_000, headChars: 500, tailChars: 500 },
         approval: { mode: 'all', tools: [] },
       },
     });
@@ -733,5 +733,60 @@ describe('runAgent — error propagation integration', () => {
     if (error?.type !== 'error') throw new Error('expected error event');
     expect(error.code).toBe('max_tokens_reached');
     expect((error as { partialContent?: string }).partialContent).toBe('cut off');
+  });
+});
+
+describe('runAgent — compaction gated on real provider usage', () => {
+  it('compacts before step 2 when step 1 usage exceeds the trigger', async () => {
+    // The mock model reports inputTokens.total = 5 per step; a trigger of 4
+    // means the REAL usage of step 1 (not any local estimate) fires compaction
+    // in prepareStep of step 2.
+    const tools = { t: fakeMcpTool({ content: [{ type: 'text', text: 'tool ok' }] }) };
+    const { model, calls } = multiStepModel([toolCallStream('t', {}), textStream('all done')], {
+      summarizeText: 'LOOP-SUMMARY',
+    });
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      baseConfig({
+        safety: {
+          compaction: { triggerTokens: 4, keepRecentMessages: 2 },
+          toolOutput: { triggerChars: 16_000, headChars: 500, tailChars: 500 },
+          approval: { mode: 'none', tools: [] },
+        },
+      }),
+      [
+        { role: 'user', content: 'old question one' },
+        { role: 'assistant', content: 'old answer one' },
+        { role: 'user', content: 'now do the thing' },
+      ],
+      (e) => void events.push(e),
+      undefined,
+      { model, tools },
+    );
+
+    expect(calls).toHaveLength(2);
+
+    // Step 1 saw the verbatim history (no usage yet — compaction must stay off).
+    const step1Prompt = JSON.stringify(calls[0]?.prompt);
+    expect(step1Prompt).toContain('old answer one');
+    expect(step1Prompt).not.toContain('LOOP-SUMMARY');
+
+    // Step 2 saw the compacted history: summary in, earlier turns out, and the
+    // assistant tool-call + tool-result pair kept intact.
+    const step2Prompt = JSON.stringify(calls[1]?.prompt);
+    expect(step2Prompt).toContain('LOOP-SUMMARY');
+    expect(step2Prompt).toContain('[COMPACTED CONTEXT]');
+    expect(step2Prompt).not.toContain('old answer one');
+    expect(step2Prompt).toContain('tool ok');
+
+    expect(events.some((e) => e.type === 'compaction_start')).toBe(true);
+    const finished = events.find((e) => e.type === 'compaction_finished');
+    if (finished?.type !== 'compaction_finished') throw new Error('no compaction_finished');
+    expect(finished.droppedCount).toBeGreaterThan(0);
+    expect(finished.after.chars).toBeLessThan(finished.before.chars);
+
+    const final = events.find((e) => e.type === 'final');
+    expect(final?.type).toBe('final');
   });
 });

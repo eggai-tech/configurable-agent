@@ -2,7 +2,6 @@ import type { ModelMessage } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from '../src/agent/events.js';
 import { maybeCompactMessages } from '../src/agent/safety/compaction.js';
-import { countTextTokens } from '../src/agent/safety/tokens.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 function cfg(overrides: Partial<AgentConfig['safety']['compaction']> = {}): AgentConfig {
@@ -14,7 +13,7 @@ function cfg(overrides: Partial<AgentConfig['safety']['compaction']> = {}): Agen
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100, keepRecentMessages: 2, ...overrides },
-      toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
+      toolOutput: { triggerChars: 16_000, headChars: 500, tailChars: 500 },
       approval: { mode: 'none', tools: [] },
     },
   };
@@ -33,7 +32,35 @@ describe('maybeCompactMessages', () => {
       { role: 'system', content: 'SYS' },
       { role: 'user', content: 'hi' },
     ];
-    const out = await maybeCompactMessages({ messages, config: cfg(), summarize, emit });
+    const out = await maybeCompactMessages({
+      messages,
+      lastInputTokens: 50,
+      config: cfg(),
+      summarize,
+      emit,
+    });
+    expect(out).toBe(messages);
+    expect(summarize).not.toHaveBeenCalled();
+    expect(seen).toEqual([]);
+  });
+
+  it('stays off when the provider reports no usage (first step or unsupported)', async () => {
+    const { emit, seen } = events();
+    const summarize = vi.fn();
+    const big = 'x'.repeat(100_000);
+    const messages: ModelMessage[] = [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: big },
+      { role: 'assistant', content: big },
+      { role: 'user', content: big },
+    ];
+    const out = await maybeCompactMessages({
+      messages,
+      lastInputTokens: undefined,
+      config: cfg(),
+      summarize,
+      emit,
+    });
     expect(out).toBe(messages);
     expect(summarize).not.toHaveBeenCalled();
     expect(seen).toEqual([]);
@@ -53,7 +80,13 @@ describe('maybeCompactMessages', () => {
     ];
     const summarize = vi.fn(async () => 'brief summary');
 
-    const out = await maybeCompactMessages({ messages, config: cfg(), summarize, emit });
+    const out = await maybeCompactMessages({
+      messages,
+      lastInputTokens: 500,
+      config: cfg(),
+      summarize,
+      emit,
+    });
 
     expect(summarize).toHaveBeenCalledTimes(1);
     expect(seen[0]?.type).toBe('compaction_start');
@@ -88,7 +121,13 @@ describe('maybeCompactMessages', () => {
       throw new Error('summarizer offline');
     });
 
-    const out = await maybeCompactMessages({ messages, config: cfg(), summarize, emit });
+    const out = await maybeCompactMessages({
+      messages,
+      lastInputTokens: 500,
+      config: cfg(),
+      summarize,
+      emit,
+    });
 
     // No throw: compaction completes with a placeholder instead of failing.
     expect(seen[1]?.type).toBe('compaction_finished');
@@ -100,7 +139,7 @@ describe('maybeCompactMessages', () => {
     ]);
   });
 
-  it('compaction_finished reports smaller token count than compaction_start', async () => {
+  it('compaction_finished reports smaller exact sizes than compaction_start', async () => {
     const { emit, seen } = events();
     const bigContent = 'lorem ipsum dolor sit amet '.repeat(40);
     const messages: ModelMessage[] = [
@@ -113,7 +152,7 @@ describe('maybeCompactMessages', () => {
       { role: 'assistant', content: 'recent' },
     ];
     const summarize = async () => 'tiny';
-    await maybeCompactMessages({ messages, config: cfg(), summarize, emit });
+    await maybeCompactMessages({ messages, lastInputTokens: 500, config: cfg(), summarize, emit });
 
     const start = seen.find((e) => e.type === 'compaction_start');
     const finished = seen.find((e) => e.type === 'compaction_finished');
@@ -121,7 +160,8 @@ describe('maybeCompactMessages', () => {
       true,
     );
     if (start?.type === 'compaction_start' && finished?.type === 'compaction_finished') {
-      expect(finished.after.tokens).toBeLessThan(start.before.tokens);
+      expect(finished.after.chars).toBeLessThan(start.before.chars);
+      expect(finished.after.messages).toBeLessThan(start.before.messages);
       expect(finished.droppedCount).toBeGreaterThan(0);
     }
   });
@@ -144,6 +184,7 @@ describe('maybeCompactMessages', () => {
         { role: 'user', content: 'Q3 short' },
         { role: 'assistant', content: 'A3 short' },
       ],
+      lastInputTokens: 500,
       config: cfg(),
       summarize,
       emit,
@@ -155,6 +196,7 @@ describe('maybeCompactMessages', () => {
         { role: 'user', content: `Q4 ${bigContent}` },
         { role: 'assistant', content: `A4 ${bigContent}` },
       ],
+      lastInputTokens: 500,
       config: cfg(),
       summarize,
       emit,
@@ -181,7 +223,13 @@ describe('maybeCompactMessages', () => {
     ];
     const summarize = vi.fn(async () => 'tool-loop summary');
 
-    const out = await maybeCompactMessages({ messages, config: cfg(), summarize, emit });
+    const out = await maybeCompactMessages({
+      messages,
+      lastInputTokens: 500,
+      config: cfg(),
+      summarize,
+      emit,
+    });
 
     expect(seen.some((e) => e.type === 'compaction_finished')).toBe(true);
     expect(summarize).toHaveBeenCalledTimes(1);
@@ -190,14 +238,5 @@ describe('maybeCompactMessages', () => {
     const summaryIdx = out.findIndex((m) => String(m.content).includes('[COMPACTED CONTEXT]'));
     expect(summaryIdx).toBe(1);
     expect(out[summaryIdx + 1]?.role).not.toBe('tool');
-  });
-});
-
-describe('countTextTokens', () => {
-  it('returns positive counts for non-empty text', () => {
-    expect(countTextTokens('hello world')).toBeGreaterThan(0);
-  });
-  it('returns 0 for empty string', () => {
-    expect(countTextTokens('')).toBe(0);
   });
 });

@@ -12,7 +12,7 @@ function cfg(overrides: Partial<AgentConfig['safety']['toolOutput']> = {}): Agen
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-      toolOutput: { triggerTokens: 50, headChars: 20, tailChars: 20, ...overrides },
+      toolOutput: { triggerChars: 200, headChars: 20, tailChars: 20, ...overrides },
       approval: { mode: 'none', tools: [] },
     },
   };

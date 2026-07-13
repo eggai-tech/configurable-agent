@@ -61,15 +61,16 @@ mcpTools: []
 
 safety:
   compaction:
-    # When the full message history exceeds this many (approximate, chars/4)
-    # tokens, older turns are LLM-summarized before the next model call.
+    # When the provider-reported input-token usage of a step exceeds this,
+    # older turns are LLM-summarized before the next model call. Real usage
+    # from the API response — no local token estimation.
     triggerTokens: 100000
     # Number of most-recent messages to keep verbatim after compaction.
     keepRecentMessages: 6
   toolOutput:
-    # Tool results larger than this are replaced with an LLM summary plus
-    # head/tail excerpts before being added to conversation history.
-    triggerTokens: 4000
+    # Tool results larger than this many characters are replaced with an LLM
+    # summary plus head/tail excerpts before entering conversation history.
+    triggerChars: 16000
     headChars: 500
     tailChars: 500
   approval:
