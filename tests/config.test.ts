@@ -255,6 +255,7 @@ model:
     expect(() => loadConfig(path)).toThrow(/Handlebars/);
   });
 
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal env-var placeholder syntax is the feature under test
   it('expands ${VAR} from the environment and supports the $${VAR} escape', () => {
     process.env.CFG_TEST_TOKEN = 'secret-token';
     try {
@@ -273,6 +274,7 @@ mcpTools:
 `,
       );
       const cfg = loadConfig(path);
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the escape yields a literal placeholder
       expect(cfg.systemPrompt).toBe('Use ${HOME} literally');
       const server = cfg.mcpTools[0];
       if (server?.transport !== 'http') throw new Error('expected http server');
@@ -282,6 +284,7 @@ mcpTools:
     }
   });
 
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal env-var placeholder syntax is the feature under test
   it('throws ConfigError naming every unset ${VAR} reference', () => {
     const path = write(
       'config.yaml',

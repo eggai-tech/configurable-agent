@@ -100,6 +100,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disconnects mid-stream
 - `toModelOutput` and MCP client usage updated for AI SDK v7; MCP tool schemas
   normalized to JSON Schema draft 2020-12
+- Signed tool-approval resume no longer fails: the request boundary validated
+  messages through the SDK's zod schema and passed the parsed copy on, which
+  silently stripped the approval `signature` — validation now passes the
+  original messages through, mirroring the SDK's own behavior
+- MCP transport-level errors outside a tool call (e.g. a crashed stdio child)
+  are now logged instead of being silently swallowed
+- The readiness probe requests 16 output tokens instead of 1 — some reasoning
+  models enforce a minimum and would report a healthy setup as not ready
 
 ## [0.2.1] - 2026-06-15
 

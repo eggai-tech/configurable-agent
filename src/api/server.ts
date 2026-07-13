@@ -12,7 +12,7 @@ import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
 import { parseTraceparent } from '../observability/tracing.js';
 import { positiveIntFromEnv } from '../util.js';
-import { InvokeRequestSchema } from './request.js';
+import { parseInvokeRequest } from './request.js';
 import { writeAgentEvent } from './sse.js';
 
 export interface BuildServerOptions {
@@ -94,7 +94,7 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
       return c.json({ error: 'invalid_json' }, 400);
     }
 
-    const parsed = InvokeRequestSchema.safeParse(body);
+    const parsed = parseInvokeRequest(body);
     if (!parsed.success) {
       return c.json(
         {
@@ -106,7 +106,7 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
       );
     }
 
-    const incoming = parsed.data.messages;
+    const incoming = parsed.messages;
     const requestId = randomUUID();
     const startedAt = Date.now();
 

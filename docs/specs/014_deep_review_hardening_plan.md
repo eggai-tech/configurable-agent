@@ -210,6 +210,35 @@ bug/stability/PII review) over the already-hardened branch. Confirmed fixes:
   `BuildServerOptions.model` override added for testability), plus
   `expandEnvVars` and strict-schema coverage.
 
+From the installed-SDK verification pass (every claim checked against
+`ai@7.0.19` dist types/docs):
+
+- **Signature-stripping fix (critical, pairs with the gate enforcement)**: the
+  runtime `modelMessageSchema` models tool-approval-request parts as only
+  `{type, approvalId, toolCallId}` — parsing a re-POSTed history through it
+  drops the HMAC `signature`, so a signed resume always failed with
+  `InvalidToolApprovalSignatureError`. `parseInvokeRequest` now validates and
+  returns the ORIGINAL messages (the SDK's `standardizePrompt` does the same);
+  regression-tested in `tests/request.test.ts`.
+- `stream.totalUsage` (deprecated) → `stream.usage`; MCP clients get
+  `onUncaughtError` wired to the logger; the readiness probe asks for 16
+  output tokens (some reasoning models enforce a minimum and 400 on 1).
+- Verified keep-custom (no SDK equivalent): compaction summarizer
+  (`prepareStep` messages-override is the documented seam; `pruneMessages`
+  only strips, never summarizes), tool-output summarization
+  (`toModelOutput` is the only native hook), the approval glob matcher
+  (`toolApproval` maps are exact-name only), and
+  `normalizeJsonSchemaDraft2020` (no normalization in `@ai-sdk/mcp`).
+- `ToolLoopAgent` migration rejected: `ToolLoopAgentSettings` does not accept
+  `experimental_toolApprovalSecret` at 7.0.19, so migrating would lose signed
+  approvals while the part→SSE loop would remain anyway. Revisit when the
+  secret option lands on the agent class.
+- `stream.responseMessages`, the approval/denied stream-part handling,
+  `Output.object` + `stream.output`, `prepareStep`'s 0-based `stepNumber`,
+  and the `telemetry`/`registerTelemetry` wiring were all confirmed correct
+  against the dist types. The `finishReason === 'tool-calls'` check is kept
+  as a deliberate guard for providers that ignore `toolChoice: 'none'`.
+
 Recorded as known limitations (deliberate non-fixes):
 - stdio MCP child stderr stays `'inherit'`: the transport keeps its child
   process private, so piping stderr would leave the pipe unread and block the

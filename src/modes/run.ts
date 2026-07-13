@@ -3,7 +3,7 @@ import type { LanguageModel, ModelMessage } from 'ai';
 import { z } from 'zod';
 import { type AgentEvent, runAgent } from '../agent/loop.js';
 import { buildMcpRegistry } from '../agent/tools/mcp.js';
-import { InvokeRequestSchema } from '../api/request.js';
+import { parseInvokeRequest } from '../api/request.js';
 import { type RunRecord, readAllStdin, writeRunRecord } from '../cli/stdio.js';
 import { ConfigError, loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
@@ -52,7 +52,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
     return 2;
   }
 
-  const validated = InvokeRequestSchema.safeParse(parsedBody);
+  const validated = parseInvokeRequest(parsedBody);
   if (!validated.success) {
     opts.stderr.write(`stdin failed schema validation:\n${z.prettifyError(validated.error)}\n`);
     return 2;
@@ -75,12 +75,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
   const parentSpanCtx = parseTraceparent(opts.env.TRACEPARENT);
 
   try {
-    const record = await executeRun(
-      config,
-      validated.data.messages,
-      opts.modelOverride,
-      parentSpanCtx,
-    );
+    const record = await executeRun(config, validated.messages, opts.modelOverride, parentSpanCtx);
     await writeRunRecord(opts.stdout, record);
     return 0;
   } catch (err) {

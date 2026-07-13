@@ -52,7 +52,9 @@ export async function probeModel(
     await generateText({
       model: buildModel(cfg),
       prompt: 'ping',
-      maxOutputTokens: 1,
+      // 16, not 1: some reasoning models enforce a minimum output budget and
+      // would 400 on a smaller value, turning a healthy setup into "not ready".
+      maxOutputTokens: 16,
       maxRetries: 0,
       abortSignal: signal,
     });

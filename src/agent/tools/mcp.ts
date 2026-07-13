@@ -93,8 +93,14 @@ async function withTimeout<T>(ms: number, message: string, work: () => Promise<T
 }
 
 function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
+  // Transport-level failures outside a tool call (e.g. the child dying, a
+  // broken pipe) would otherwise be silent.
+  const onUncaughtError = (error: unknown) =>
+    logger.warn({ server: server.name, err: errorMessage(error) }, 'MCP client error');
+
   if (server.transport === 'stdio') {
     return createMCPClient({
+      onUncaughtError,
       // Only the configured `env` reaches the child (plus the transport's safe
       // defaults such as PATH/HOME) — never the full process environment, which
       // holds provider API keys. Use `${VAR}` in the config to pass a specific
@@ -112,6 +118,7 @@ function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
     });
   }
   return createMCPClient({
+    onUncaughtError,
     transport: {
       type: 'http',
       url: server.url,

@@ -152,7 +152,7 @@ export async function runAgent(
           const envelope: ToolResult = {
             label: part.toolName,
             status: 'error',
-            content: String((part as { error?: unknown }).error ?? 'tool error'),
+            content: String(part.error ?? 'tool error'),
             return_code: null,
             args: part.input,
             duration_ms: 0,
@@ -257,7 +257,7 @@ export async function runAgent(
       }
     }
 
-    const usage = await stream.totalUsage;
+    const usage = await stream.usage;
     await emit({
       type: 'final',
       content: structured !== undefined ? '' : stepText,
