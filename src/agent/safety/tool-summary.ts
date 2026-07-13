@@ -9,8 +9,6 @@ export interface ToolSummaryRuntime {
   summarize: Summarizer;
 }
 
-// Upper bound on how much raw output is fed to the summarizer prompt. Independent
-// of the head/tail excerpt sizes: this caps the summarizer's own input cost.
 const SUMMARY_INPUT_CHAR_LIMIT = 40_000;
 
 export async function maybeSummarizeToolOutput(

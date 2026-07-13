@@ -101,9 +101,6 @@ export async function maybeCompactMessages({
   return newMessages;
 }
 
-// Exact sizes for the observability events: message count and total content
-// characters. No token estimation — the compaction trigger itself compares
-// the provider-reported usage.
 function snapshot(messages: ReadonlyArray<ModelMessage>): SizeSnapshot {
   let chars = 0;
   for (const msg of messages) {

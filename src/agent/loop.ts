@@ -96,8 +96,6 @@ export async function runAgent(
       prepareStep: async ({ stepNumber, steps: priorSteps, messages: stepMessages }) => ({
         messages: await maybeCompactMessages({
           messages: stepMessages,
-          // Real provider-counted size of the previous step's prompt — the
-          // compaction trigger never relies on a local token estimate.
           lastInputTokens: priorSteps.at(-1)?.usage.inputTokens,
           config,
           summarize,

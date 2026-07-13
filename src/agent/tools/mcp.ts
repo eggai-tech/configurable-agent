@@ -26,42 +26,8 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
 
   try {
     for (const server of cfg.mcpTools) {
-      logger.debug(
-        { server: server.name, transport: server.transport },
-        'connecting to MCP server',
-      );
-
-      let serverTools: Record<string, Tool>;
-      try {
-        // Neither connect nor tool discovery has a protocol-level timeout: a
-        // hung server would otherwise block startup (and /health) forever.
-        serverTools = await withTimeout(
-          discoveryTimeoutMs,
-          `MCP server "${server.name}" did not respond within ${discoveryTimeoutMs}ms`,
-          async () => {
-            const client = await createClientForServer(server);
-            clients.push(client);
-            return client.tools();
-          },
-        );
-      } catch (err) {
-        // Name the offending server so a single broken transport is diagnosable
-        // instead of surfacing as an opaque registry failure.
-        throw new Error(
-          `MCP server "${server.name}" (${server.transport}) failed during discovery: ${errorMessage(err)}`,
-          { cause: err },
-        );
-      }
-
-      normalizeToolSchemas(serverTools);
-      for (const toolName of Object.keys(serverTools)) {
-        if (Object.hasOwn(allTools, toolName)) {
-          throw new Error(
-            `MCP tool name conflict: "${toolName}" is exposed by "${server.name}" but already registered by a previously loaded server`,
-          );
-        }
-      }
-      Object.assign(allTools, serverTools);
+      const serverTools = await discoverServerTools(server, clients, discoveryTimeoutMs);
+      mergeServerTools(allTools, serverTools, server.name);
       logger.info(
         { server: server.name, tools: Object.keys(serverTools).length },
         'MCP server ready',
@@ -76,6 +42,59 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
     tools: allTools,
     cleanup: () => closeAll(clients),
   };
+}
+
+/**
+ * Connect one server and fetch its tool catalog, bounded by a timeout —
+ * neither connect nor discovery has a protocol-level timeout, and a hung
+ * server would otherwise block startup (and /health) forever. The client is
+ * registered in `clients` as soon as it exists, so it is closed on failure
+ * even when discovery times out afterwards. Errors name the offending server.
+ */
+async function discoverServerTools(
+  server: McpServerConfig,
+  clients: MCPClient[],
+  timeoutMs: number,
+): Promise<Record<string, Tool>> {
+  logger.debug({ server: server.name, transport: server.transport }, 'connecting to MCP server');
+
+  const connectAndDiscover = async (): Promise<Record<string, Tool>> => {
+    const client = await createClientForServer(server);
+    clients.push(client);
+    return client.tools();
+  };
+
+  let serverTools: Record<string, Tool>;
+  try {
+    serverTools = await withTimeout(
+      timeoutMs,
+      `MCP server "${server.name}" did not respond within ${timeoutMs}ms`,
+      connectAndDiscover,
+    );
+  } catch (err) {
+    throw new Error(
+      `MCP server "${server.name}" (${server.transport}) failed during discovery: ${errorMessage(err)}`,
+      { cause: err },
+    );
+  }
+
+  normalizeToolSchemas(serverTools);
+  return serverTools;
+}
+
+function mergeServerTools(
+  allTools: Record<string, Tool>,
+  serverTools: Record<string, Tool>,
+  serverName: string,
+): void {
+  for (const toolName of Object.keys(serverTools)) {
+    if (Object.hasOwn(allTools, toolName)) {
+      throw new Error(
+        `MCP tool name conflict: "${toolName}" is exposed by "${serverName}" but already registered by a previously loaded server`,
+      );
+    }
+  }
+  Object.assign(allTools, serverTools);
 }
 
 async function withTimeout<T>(ms: number, message: string, work: () => Promise<T>): Promise<T> {
