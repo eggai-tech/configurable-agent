@@ -4,7 +4,7 @@ import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import { jsonSchema, type Tool, type ToolSet } from 'ai';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
 import { logger } from '../../observability/logger.js';
-import { errorMessage, safeJson } from '../../util.js';
+import { errorMessage, positiveIntFromEnv, safeJson } from '../../util.js';
 import type { ToolResult } from '../events.js';
 import { toolResultToModelOutput } from '../events.js';
 import { maybeSummarizeToolOutput, type ToolSummaryRuntime } from '../safety/tool-summary.js';
@@ -22,6 +22,7 @@ export interface McpRegistry {
 export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
   const clients: MCPClient[] = [];
   const allTools: Record<string, Tool> = {};
+  const discoveryTimeoutMs = positiveIntFromEnv('MCP_DISCOVERY_TIMEOUT_MS', 30_000);
 
   try {
     for (const server of cfg.mcpTools) {
@@ -32,9 +33,17 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
 
       let serverTools: Record<string, Tool>;
       try {
-        const client = await createClientForServer(server);
-        clients.push(client);
-        serverTools = await client.tools();
+        // Neither connect nor tool discovery has a protocol-level timeout: a
+        // hung server would otherwise block startup (and /health) forever.
+        serverTools = await withTimeout(
+          discoveryTimeoutMs,
+          `MCP server "${server.name}" did not respond within ${discoveryTimeoutMs}ms`,
+          async () => {
+            const client = await createClientForServer(server);
+            clients.push(client);
+            return client.tools();
+          },
+        );
       } catch (err) {
         // Name the offending server so a single broken transport is diagnosable
         // instead of surfacing as an opaque registry failure.
@@ -69,6 +78,20 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
   };
 }
 
+async function withTimeout<T>(ms: number, message: string, work: () => Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
   if (server.transport === 'stdio') {
     return createMCPClient({
@@ -81,6 +104,10 @@ function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
         args: server.args,
         cwd: server.cwd,
         env: server.env,
+        // stderr stays 'inherit' (the default): the transport keeps its child
+        // process private, so piping stderr would leave it unread and block
+        // the child once the pipe buffer fills. Child diagnostics therefore
+        // pass through to fd 2 unstructured.
       }),
     });
   }

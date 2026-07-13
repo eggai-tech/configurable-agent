@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { context, trace } from '@opentelemetry/api';
-import type { ToolSet } from 'ai';
+import type { LanguageModel, ToolSet } from 'ai';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import type { AgentEvent } from '../agent/events.js';
 import { runAgent } from '../agent/loop.js';
-import { probeModel, requiredEnvVarFor } from '../agent/model.js';
+import { type ProbeResult, probeModel, requiredEnvVarFor } from '../agent/model.js';
 import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
 import { parseTraceparent } from '../observability/tracing.js';
+import { positiveIntFromEnv } from '../util.js';
 import { InvokeRequestSchema } from './request.js';
 import { writeAgentEvent } from './sse.js';
 
@@ -19,16 +21,13 @@ export interface BuildServerOptions {
    * discovery does not run per /invoke.
    */
   tools: ToolSet;
-}
-
-export function positiveIntFromEnv(name: string, fallback: number): number {
-  const parsed = Number(process.env[name]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  /** Model override, used by tests to run the endpoints against a mock model. */
+  model?: LanguageModel;
 }
 
 export function buildServer(config: AgentConfig, options: BuildServerOptions) {
   const app = new Hono();
-  const { tools } = options;
+  const { tools, model } = options;
   const tracer = trace.getTracer('configurable-agent');
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
@@ -36,9 +35,29 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
   // Cheap presence check by default; opt into an active provider probe with
   // `?deep=1` (or READINESS_DEEP_PROBE=1) to also catch bad credentials, an
   // unreachable baseUrl, or an unknown model. The probe hits the provider, so
-  // it is off by default to keep k8s readiness polling free.
+  // it is off by default to keep k8s readiness polling free. Probe results are
+  // cached briefly with single-flight dedup so the endpoint cannot be abused
+  // to hammer the provider (it is unauthenticated).
   const deepProbeDefault = process.env.READINESS_DEEP_PROBE === '1';
   const probeTimeoutMs = positiveIntFromEnv('READINESS_PROBE_TIMEOUT_MS', 5000);
+  const probeCacheMs = positiveIntFromEnv('READINESS_PROBE_CACHE_MS', 10_000);
+  let probeInFlight: Promise<ProbeResult> | null = null;
+  let probeCache: { result: ProbeResult; at: number } | null = null;
+
+  const cachedProbe = (): Promise<ProbeResult> => {
+    if (probeCache && Date.now() - probeCache.at < probeCacheMs) {
+      return Promise.resolve(probeCache.result);
+    }
+    probeInFlight ??= probeModel(config.model, AbortSignal.timeout(probeTimeoutMs))
+      .then((result) => {
+        probeCache = { result, at: Date.now() };
+        return result;
+      })
+      .finally(() => {
+        probeInFlight = null;
+      });
+    return probeInFlight;
+  };
 
   app.get('/ready', async (c) => {
     const requiredEnv = requiredEnvVarFor(config.model.provider);
@@ -48,13 +67,12 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
 
     const deep = c.req.query('deep') === '1' || deepProbeDefault;
     if (deep) {
-      const probe = await probeModel(config.model, AbortSignal.timeout(probeTimeoutMs));
+      const probe = await cachedProbe();
       if (!probe.ok) {
+        // The provider error text can carry endpoint/key details — log it,
+        // never return it to the (unauthenticated) caller.
         logger.warn({ error: probe.error }, 'readiness deep probe failed');
-        return c.json(
-          { status: 'not_ready', reason: 'provider probe failed', error: probe.error },
-          503,
-        );
+        return c.json({ status: 'not_ready', reason: 'provider probe failed' }, 503);
       }
       return c.json({ status: 'ok', probe: 'passed' });
     }
@@ -62,7 +80,13 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
     return c.json({ status: 'ok' });
   });
 
-  app.post('/invoke', async (c) => {
+  const maxBodyBytes = positiveIntFromEnv('MAX_REQUEST_BODY_BYTES', 10 * 1024 * 1024);
+  const invokeBodyLimit = bodyLimit({
+    maxSize: maxBodyBytes,
+    onError: (c) => c.json({ error: 'payload_too_large', maxBytes: maxBodyBytes }, 413),
+  });
+
+  app.post('/invoke', invokeBodyLimit, async (c) => {
     let body: unknown;
     try {
       body = await c.req.json();
@@ -129,7 +153,7 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
         };
 
         try {
-          await runAgent(config, incoming, emit, abortController.signal, { tools });
+          await runAgent(config, incoming, emit, abortController.signal, { tools, model });
           logger.info({ requestId, durationMs: Date.now() - startedAt }, 'invoke finished');
         } catch (err) {
           logger.error({ requestId, err, durationMs: Date.now() - startedAt }, 'agent run failed');

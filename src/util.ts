@@ -13,3 +13,9 @@ export function errorMessage(err: unknown): string {
   if (typeof err === 'string') return err;
   return safeJson(err);
 }
+
+/** Read a positive integer from the environment, or the fallback when unset/invalid. */
+export function positiveIntFromEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}

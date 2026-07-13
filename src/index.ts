@@ -20,8 +20,11 @@ program
   .description('One-shot CLI run: read JSON from stdin, write a run record to stdout')
   .requiredOption('--config <path>', 'Path to agent config YAML')
   .action(async (options: { config: string }) => {
-    // Absorb stray third-party stdout writes so only the final record reaches stdout.
+    // Absorb stray third-party stdout writes so only the final record reaches
+    // stdout — info/debug also target stdout, not just log.
     console.log = console.error;
+    console.info = console.error;
+    console.debug = console.error;
     const code = await runCli({
       argv: ['--config', options.config],
       stdin: process.stdin,

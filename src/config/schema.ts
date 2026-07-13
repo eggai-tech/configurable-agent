@@ -10,7 +10,7 @@ const JsonSchemaObject = z.record(z.string(), z.unknown(), {
   error: 'output.schema must be a JSON Schema object',
 });
 
-const McpStdioServerSchema = z.object({
+const McpStdioServerSchema = z.strictObject({
   name: z.string().min(1, 'MCP server name must not be empty'),
   transport: z.literal('stdio'),
   command: z.string().min(1, 'stdio MCP server needs a non-empty command'),
@@ -19,7 +19,7 @@ const McpStdioServerSchema = z.object({
   env: z.record(z.string(), z.string()).default({}),
 });
 
-const McpHttpServerSchema = z.object({
+const McpHttpServerSchema = z.strictObject({
   name: z.string().min(1, 'MCP server name must not be empty'),
   transport: z.literal('http'),
   url: z.url('http MCP server needs a valid url (e.g. https://host/mcp)'),
@@ -37,7 +37,7 @@ export const AgentConfigSchema = z
   .object({
     systemPrompt: z.string().min(1, 'systemPrompt must not be empty'),
     promptVars: z.record(z.string(), z.unknown()).optional(),
-    model: z.object({
+    model: z.strictObject({
       provider: ModelProvider,
       name: z.string().min(1, 'model.name must not be empty'),
       baseUrl: z.url('model.baseUrl must be a valid URL').optional(),
@@ -58,7 +58,7 @@ export const AgentConfigSchema = z
         .optional(),
     }),
     agent: z
-      .object({
+      .strictObject({
         maxSteps: z
           .number()
           .int('agent.maxSteps must be a positive integer')
@@ -69,14 +69,14 @@ export const AgentConfigSchema = z
     mcpTools: z.array(McpServerSchema).default([]),
     output: z
       .discriminatedUnion('structured', [
-        z.object({ structured: z.literal(false) }),
-        z.object({ structured: z.literal(true), schema: JsonSchemaObject }),
+        z.strictObject({ structured: z.literal(false) }),
+        z.strictObject({ structured: z.literal(true), schema: JsonSchemaObject }),
       ])
       .default({ structured: false }),
     safety: z
-      .object({
+      .strictObject({
         compaction: z
-          .object({
+          .strictObject({
             triggerTokens: z
               .number()
               .int('safety.compaction.triggerTokens must be a positive integer')
@@ -90,7 +90,7 @@ export const AgentConfigSchema = z
           })
           .prefault({}),
         toolOutput: z
-          .object({
+          .strictObject({
             triggerTokens: z
               .number()
               .int('safety.toolOutput.triggerTokens must be a positive integer')
@@ -109,7 +109,7 @@ export const AgentConfigSchema = z
           })
           .prefault({}),
         approval: z
-          .object({
+          .strictObject({
             // 'none' — no tool ever needs approval (default).
             // 'all'  — every model-invoked tool needs human approval.
             // 'selected' — only tools whose name matches a `tools` pattern.
@@ -126,7 +126,7 @@ export const AgentConfigSchema = z
       })
       .prefault({}),
     evals: z
-      .object({
+      .strictObject({
         dir: z.string().min(1, 'evals.dir must not be empty'),
       })
       .optional(),

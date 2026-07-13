@@ -1,6 +1,6 @@
-import { anthropic } from '@ai-sdk/anthropic';
-import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
+import { anthropic, createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
+import { createOpenAI, openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, type LanguageModel } from 'ai';
 import type { AgentConfig } from '../config/schema.js';
@@ -9,11 +9,15 @@ import { errorMessage } from '../util.js';
 export function buildModel(cfg: AgentConfig['model']): LanguageModel {
   switch (cfg.provider) {
     case 'anthropic':
-      return anthropic(cfg.name);
+      return cfg.baseUrl
+        ? createAnthropic({ baseURL: cfg.baseUrl })(cfg.name)
+        : anthropic(cfg.name);
     case 'openai':
-      return openai(cfg.name);
+      return cfg.baseUrl ? createOpenAI({ baseURL: cfg.baseUrl })(cfg.name) : openai(cfg.name);
     case 'google':
-      return google(cfg.name);
+      return cfg.baseUrl
+        ? createGoogleGenerativeAI({ baseURL: cfg.baseUrl })(cfg.name)
+        : google(cfg.name);
     case 'ollama': {
       const baseURL = cfg.baseUrl ?? process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1';
       const ollama = createOpenAICompatible({ name: 'ollama', baseURL });
@@ -49,6 +53,7 @@ export async function probeModel(
       model: buildModel(cfg),
       prompt: 'ping',
       maxOutputTokens: 1,
+      maxRetries: 0,
       abortSignal: signal,
     });
     return { ok: true };

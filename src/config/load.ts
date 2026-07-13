@@ -12,6 +12,7 @@ const addFormats = (
     : (ajvFormatsPkg as unknown as { default: (ajv: Ajv) => Ajv }).default
 ) as (ajv: Ajv) => Ajv;
 
+import { renderSystemPrompt } from '../agent/prompt.js';
 import { type AgentConfig, AgentConfigSchema } from './schema.js';
 
 export class ConfigError extends Error {
@@ -53,22 +54,36 @@ export function loadConfig(path: string): AgentConfig {
     validateJsonSchema(result.data.output.schema);
   }
 
+  // Render once at load: Handlebars parses lazily, so a template syntax error
+  // would otherwise surface on the first request instead of at startup.
+  try {
+    renderSystemPrompt(result.data);
+  } catch (err) {
+    throw new ConfigError(
+      `systemPrompt is not a valid Handlebars template: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+  }
+
   return result.data;
 }
 
-const ENV_VAR_PATTERN = /\$\{(\w+)\}/g;
+const ENV_VAR_PATTERN = /\$(\$?)\{(\w+)\}/g;
 
 /**
  * Recursively expand `${VAR}` references in every string of a parsed config
  * against the given environment. Lets secrets (e.g. API tokens) stay out of the
- * YAML file. Throws a ConfigError listing every referenced var that is unset.
+ * YAML file. `$${VAR}` escapes expansion and yields a literal `${VAR}` — for
+ * prompt text that must contain the sequence verbatim. Throws a ConfigError
+ * listing every referenced var that is unset.
  */
 export function expandEnvVars(value: unknown, env: NodeJS.ProcessEnv): unknown {
   const missing = new Set<string>();
 
   const walk = (node: unknown): unknown => {
     if (typeof node === 'string') {
-      return node.replace(ENV_VAR_PATTERN, (_match, name: string) => {
+      return node.replace(ENV_VAR_PATTERN, (_match, escaped: string, name: string) => {
+        if (escaped) return `\${${name}}`;
         const replacement = env[name];
         if (replacement === undefined) {
           missing.add(name);

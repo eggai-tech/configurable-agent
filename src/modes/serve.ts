@@ -1,11 +1,12 @@
 import type { Server } from 'node:http';
 import { serve } from '@hono/node-server';
 import { buildMcpRegistry } from '../agent/tools/mcp.js';
-import { buildServer, positiveIntFromEnv } from '../api/server.js';
+import { buildServer } from '../api/server.js';
 import { loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
 import { shutdownTracing, startTracing } from '../observability/tracing.js';
+import { positiveIntFromEnv } from '../util.js';
 
 export async function runServe(): Promise<void> {
   startTracing();
@@ -25,6 +26,18 @@ export async function runServe(): Promise<void> {
     { configPath, provider: config.model.provider, model: config.model.name },
     'config loaded',
   );
+
+  // The /invoke history is client-controlled. Without a signing secret, a
+  // client can fabricate an "approved" response and bypass the human gate
+  // entirely — refuse to serve an approval config that cannot be enforced.
+  if (config.safety.approval.mode !== 'none' && !process.env.TOOL_APPROVAL_SECRET) {
+    logger.error(
+      { approvalMode: config.safety.approval.mode },
+      'safety.approval is enabled but TOOL_APPROVAL_SECRET is not set — approvals would be forgeable. Set the secret or set safety.approval.mode: none',
+    );
+    await shutdownTracing();
+    process.exit(1);
+  }
 
   // Build the MCP registry BEFORE we start serving traffic. If discovery fails
   // or two servers expose the same tool name, the process exits non-zero — we
@@ -65,8 +78,12 @@ export async function runServe(): Promise<void> {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     clearTimeout(forceClose);
 
-    await registry.cleanup();
-    await shutdownTracing();
+    // MCP children and the OTEL exporter get the same deadline: a child that
+    // ignores its transport closing must not stall process exit forever.
+    await Promise.race([
+      Promise.allSettled([registry.cleanup(), shutdownTracing()]),
+      new Promise((resolve) => setTimeout(resolve, shutdownTimeoutMs)),
+    ]);
     process.exit(0);
   };
 
