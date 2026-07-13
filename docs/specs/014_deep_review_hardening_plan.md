@@ -175,3 +175,46 @@ Audited every `src`/`tests` import against `package.json`:
 `corepack pnpm typecheck`, `test` (91 tests, incl. new compaction tool-loop,
 tailChars 0, approval approve/deny resume, structured-output loop, and 429
 whitelist tests), `lint`, and `build` all pass.
+
+## Second review pass (2026-07)
+
+A follow-up adversarial pass (two agents: installed-SDK API verification and a
+bug/stability/PII review) over the already-hardened branch. Confirmed fixes:
+
+- **Approval gate enforcement (high)**: the SDK skips signature verification
+  when `toolApprovalSecret` is unset, so on the stateless `/invoke` a client
+  could fabricate an `approved: true` history entry and bypass the human gate.
+  `serve` now refuses to start when `safety.approval.mode != none` and
+  `TOOL_APPROVAL_SECRET` is unset.
+- **`/ready` deep probe**: single-flight + `READINESS_PROBE_CACHE_MS` (10 s)
+  cache, `maxRetries: 0`, and the provider error text is logged but no longer
+  returned to the (unauthenticated) caller.
+- **`/invoke` body cap**: hono's built-in `bodyLimit` middleware,
+  `MAX_REQUEST_BODY_BYTES` (default 10 MiB), 413 on overflow.
+- **MCP discovery timeout**: `@ai-sdk/mcp` has no protocol-level timeout;
+  connect + `tools()` are raced against `MCP_DISCOVERY_TIMEOUT_MS` (30 s) so a
+  hung server fails startup by name instead of blocking `/health` forever.
+- **`model.baseUrl` honored for hosted providers** via
+  `createAnthropic`/`createOpenAI`/`createGoogleGenerativeAI` (was silently
+  ignored — traffic went to the default endpoint).
+- **Strict nested config**: `z.strictObject` throughout, so typo'd keys (e.g.
+  `compation`) fail at startup instead of silently using defaults; the
+  system-prompt template is rendered once at load (Handlebars parses lazily) so
+  syntax errors fail at boot; compiled templates are cached per process.
+- **Env expansion escape**: `$${VAR}` yields a literal `${VAR}` so prompt text
+  cannot accidentally pull secrets into the model input/traces.
+- **Shutdown deadline** covers MCP/OTEL cleanup, not just the HTTP drain; the
+  CLI absorbs `console.info`/`console.debug` (not just `log`) stdout writes.
+- **New tests**: endpoint suite for `/health`, `/ready` (presence + deep-probe
+  non-leak), `/invoke` (invalid JSON, schema error, 413, SSE happy path via a
+  `BuildServerOptions.model` override added for testability), plus
+  `expandEnvVars` and strict-schema coverage.
+
+Recorded as known limitations (deliberate non-fixes):
+- stdio MCP child stderr stays `'inherit'`: the transport keeps its child
+  process private, so piping stderr would leave the pipe unread and block the
+  child once the buffer fills. Child diagnostics pass through unstructured.
+- A stream error *after* a `tool-approval-request` in the same step ends the
+  run without `run_paused`; the client retries from its own history.
+- CLI `readAllStdin` is uncapped — stdin is operator-controlled in the
+  one-shot mode.

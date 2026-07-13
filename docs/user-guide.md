@@ -63,7 +63,10 @@ file is missing or invalid, the process exits immediately with an error.
 
 Any `${VAR}` reference in a string value is replaced with that environment
 variable at load time, so secrets (API tokens, header values) stay out of the
-file itself.
+file itself. To keep a literal `${VAR}` in the text (e.g. a shell example in
+the prompt), escape it as `$${VAR}`. Unknown keys anywhere in the file are
+rejected, so a typo'd setting fails at startup instead of silently using a
+default.
 
 ```yaml
 systemPrompt: |
@@ -114,8 +117,10 @@ Set `model.provider` to one of `anthropic`, `openai`, `google`, `ollama`, or
 hosted provider reads its API key from an environment variable (see
 [Environment variables](#environment-variables)).
 
-For `ollama` and `openai-compatible`, point `model.baseUrl` at your endpoint
-(these often need no API key). See
+`model.baseUrl` works for every provider: for `ollama` and `openai-compatible`
+it points at your endpoint (these often need no API key); for the hosted
+providers it routes traffic through a gateway or proxy instead of the default
+API endpoint. See
 [Connecting to a local ollama](#connecting-to-a-local-ollama) for a Kubernetes
 tip.
 
@@ -219,10 +224,12 @@ and emits a `tool_approval_requested` event. Your client decides and resumes the
 run — see [Resolving a tool approval](#resolving-a-tool-approval).
 
 > **Security:** because `/invoke` is stateless (your client owns the
-> conversation history), set `TOOL_APPROVAL_SECRET` to a strong random value
-> (e.g. `openssl rand -base64 32`) whenever approval is enabled. The service then
-> signs each approval request and rejects any that were forged or tampered with.
-> Every instance that serves requests must share the same secret.
+> conversation history), an unsigned approval could be forged by any client.
+> The server therefore **refuses to start** when approval is enabled and
+> `TOOL_APPROVAL_SECRET` is not set. Use a strong random value (e.g.
+> `openssl rand -base64 32`); the service signs each approval request and
+> rejects any that were forged or tampered with. Every instance that serves
+> requests must share the same secret.
 
 ## HTTP API
 
@@ -231,8 +238,8 @@ run — see [Resolving a tool approval](#resolving-a-tool-approval).
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/health` | GET | Liveness — returns 200 as soon as the process is up. |
-| `/ready` | GET | Readiness — 200 when the config is loaded and the provider key is present. Add `?deep=1` to also make one tiny provider call that verifies the credentials, URL, and model actually work (returns 503 with the error if not). |
-| `/invoke` | POST | Run the agent and stream the result over SSE. |
+| `/ready` | GET | Readiness — 200 when the config is loaded and the provider key is present. Add `?deep=1` to also make one tiny provider call that verifies the credentials, URL, and model actually work (503 on failure; the provider error appears in the server logs, not the response). Probe results are cached briefly, so frequent polling can't hammer the provider. |
+| `/invoke` | POST | Run the agent and stream the result over SSE. Bodies larger than the configured limit are rejected with 413. |
 
 ### Request format
 
@@ -259,7 +266,7 @@ in favor of the configured `systemPrompt`.
 | `tool_approval_requested` | `{ id, approvalId, name, args, signature? }` | A tool call is waiting for human approval. |
 | `run_paused` | `{ reason, messages }` | The run paused (e.g. for approval); `messages` are appended to the history when resuming. |
 | `compaction_start` / `compaction_finished` | sizes | Conversation compaction ran. |
-| `final` | `{ content, structured?, stopReason, steps }` | The run finished; `structured` is present in structured-output mode. |
+| `final` | `{ content, structured?, stopReason, steps, usage }` | The run finished; `structured` is present in structured-output mode, `usage` carries `inputTokens`/`outputTokens`. |
 | `error` | `{ code, message, details? }` | The run ended with an error. |
 
 Parallel tool calls within a single step are supported and stream concurrently.
@@ -387,9 +394,12 @@ Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 | `LOG_LEVEL` | `info` | Log level (`trace`…`fatal`, or `silent`). |
 | `ANTHROPIC_API_KEY` · `OPENAI_API_KEY` · `GOOGLE_GENERATIVE_AI_API_KEY` | — | Provider credentials, per `model.provider`. |
 | `OLLAMA_BASE_URL` · `OPENAI_BASE_URL` | provider default | Base URL for `ollama` / `openai-compatible` when `model.baseUrl` is unset. |
-| `TOOL_APPROVAL_SECRET` | — | Signs tool-approval requests. Set this whenever approval is enabled. |
+| `TOOL_APPROVAL_SECRET` | — | Signs tool-approval requests. Required (server refuses to start without it) whenever approval is enabled. |
+| `MAX_REQUEST_BODY_BYTES` | `10485760` (10 MiB) | Maximum `/invoke` request body size; larger bodies get 413. |
+| `MCP_DISCOVERY_TIMEOUT_MS` | `30000` | Per-server timeout for MCP connect + tool discovery at startup. |
 | `READINESS_DEEP_PROBE` | `0` | Set to `1` to make `/ready` run the provider probe by default (otherwise opt in with `?deep=1`). |
 | `READINESS_PROBE_TIMEOUT_MS` | `5000` | Timeout for the `/ready` provider probe. |
+| `READINESS_PROBE_CACHE_MS` | `10000` | How long a `/ready` deep-probe result is cached before the provider is called again. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_ENABLED` | — | Enable OpenTelemetry tracing (`OTEL_ENABLED=0`/`false` count as off). |
 | `OTEL_SERVICE_NAME` · `OTEL_SERVICE_VERSION` | `configurable-agent` / version | Service identity, shared by traces and log lines. |
 | `OTEL_RECORD_CONTENT` | `1` | Set to `0` to strip prompts/tool contents from exported spans (metadata only). |

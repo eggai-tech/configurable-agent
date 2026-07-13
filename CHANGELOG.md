@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns an `x-request-id` header
 - `OTEL_RECORD_CONTENT=0` strips prompts/tool contents from exported spans
 - `SHUTDOWN_TIMEOUT_MS` bounds the graceful-shutdown drain
+- `model.baseUrl` now works for the hosted providers too (anthropic, openai,
+  google) to route traffic through a gateway or proxy
+- `/invoke` request bodies are capped (`MAX_REQUEST_BODY_BYTES`, default 10 MiB)
+- MCP connect + discovery is bounded by `MCP_DISCOVERY_TIMEOUT_MS` (default
+  30 s) so a hung server can no longer block startup forever
+- `$${VAR}` escapes environment expansion in config strings
 
 ### Changed
 - Upgraded the `ai` SDK family to v7 and all other dependencies to their latest
@@ -34,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI SDK telemetry now flows through `@ai-sdk/otel`, registered at startup
 - Logs are written to stderr (stdout is reserved for the CLI `run` record)
 - README reorganized into a short landing page plus the user guide
+- `serve` refuses to start when tool approval is enabled without
+  `TOOL_APPROVAL_SECRET` — unsigned approvals would be forgeable on the
+  stateless `/invoke` API
+- Config validation is strict everywhere: unknown/typo'd keys in nested
+  sections (e.g. safety limits) now fail at startup, and the system-prompt
+  template is validated at load time
+- `/ready?deep=1` no longer returns provider error text to callers (it is
+  logged instead), retries are disabled for the probe, and results are cached
+  briefly with single-flight dedup so polling cannot hammer the provider
 - The agent loop uses the AI SDK's built-in multi-step execution (`stopWhen` +
   `prepareStep`) in a single `streamText` call; structured output is generated
   natively via `output: Output.object()` instead of a separate `generateObject`

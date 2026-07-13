@@ -61,8 +61,8 @@ mcpTools: []
 
 safety:
   compaction:
-    # When the full message history exceeds this many (tiktoken-estimated) tokens,
-    # older turns are LLM-summarized before the next model call.
+    # When the full message history exceeds this many (approximate, chars/4)
+    # tokens, older turns are LLM-summarized before the next model call.
     triggerTokens: 100000
     # Number of most-recent messages to keep verbatim after compaction.
     keepRecentMessages: 6
@@ -82,8 +82,9 @@ safety:
     tools: []
     #   - "delete_*"
     #   - "send_email"
-    # When approval is enabled, set TOOL_APPROVAL_SECRET so the server signs
-    # approval requests (the /invoke history is client-controlled).
+    # When approval is enabled the server REQUIRES TOOL_APPROVAL_SECRET (it
+    # refuses to start otherwise): the /invoke history is client-controlled,
+    # so unsigned approvals could be forged.
 
 output:
   structured: false
