@@ -1,30 +1,29 @@
 import { z } from 'zod';
 
-export const ModelProvider = z.enum([
-  'anthropic',
-  'openai',
-  'google',
-  'ollama',
-  'openai-compatible',
-]);
+export const ModelProvider = z.enum(
+  ['anthropic', 'openai', 'google', 'ollama', 'openai-compatible'],
+  { error: 'model.provider must be one of: anthropic, openai, google, ollama, openai-compatible' },
+);
 export type ModelProvider = z.infer<typeof ModelProvider>;
 
-const JsonSchemaObject = z.record(z.unknown());
-
-const McpStdioServerSchema = z.object({
-  name: z.string().min(1),
-  transport: z.literal('stdio'),
-  command: z.string().min(1),
-  args: z.array(z.string()).optional().default([]),
-  cwd: z.string().optional(),
-  env: z.record(z.string()).optional().default({}),
+const JsonSchemaObject = z.record(z.string(), z.unknown(), {
+  error: 'output.schema must be a JSON Schema object',
 });
 
-const McpHttpServerSchema = z.object({
-  name: z.string().min(1),
+const McpStdioServerSchema = z.strictObject({
+  name: z.string().min(1, 'MCP server name must not be empty'),
+  transport: z.literal('stdio'),
+  command: z.string().min(1, 'stdio MCP server needs a non-empty command'),
+  args: z.array(z.string()).default([]),
+  cwd: z.string().optional(),
+  env: z.record(z.string(), z.string()).default({}),
+});
+
+const McpHttpServerSchema = z.strictObject({
+  name: z.string().min(1, 'MCP server name must not be empty'),
   transport: z.literal('http'),
-  url: z.string().url(),
-  headers: z.record(z.string()).optional().default({}),
+  url: z.url('http MCP server needs a valid url (e.g. https://host/mcp)'),
+  headers: z.record(z.string(), z.string()).default({}),
 });
 
 const McpServerSchema = z.discriminatedUnion('transport', [
@@ -36,51 +35,103 @@ export type McpServerConfig = z.infer<typeof McpServerSchema>;
 
 export const AgentConfigSchema = z
   .object({
-    systemPrompt: z.string().min(1),
-    promptVars: z.record(z.unknown()).optional(),
-    model: z.object({
+    systemPrompt: z.string().min(1, 'systemPrompt must not be empty'),
+    promptVars: z.record(z.string(), z.unknown()).optional(),
+    model: z.strictObject({
       provider: ModelProvider,
-      name: z.string().min(1),
-      baseUrl: z.string().url().optional(),
-      temperature: z.number().min(0).max(2).optional(),
-      topP: z.number().min(0).max(1).optional(),
-      maxOutputTokens: z.number().int().positive().optional(),
+      name: z.string().min(1, 'model.name must not be empty'),
+      baseUrl: z.url('model.baseUrl must be a valid URL').optional(),
+      temperature: z
+        .number()
+        .min(0, 'model.temperature must be between 0 and 2')
+        .max(2, 'model.temperature must be between 0 and 2')
+        .optional(),
+      topP: z
+        .number()
+        .min(0, 'model.topP must be between 0 and 1')
+        .max(1, 'model.topP must be between 0 and 1')
+        .optional(),
+      maxOutputTokens: z
+        .number()
+        .int('model.maxOutputTokens must be a positive integer')
+        .positive('model.maxOutputTokens must be a positive integer')
+        .optional(),
     }),
     agent: z
-      .object({
-        maxSteps: z.number().int().positive().default(10),
+      .strictObject({
+        maxSteps: z
+          .number()
+          .int('agent.maxSteps must be a positive integer')
+          .positive('agent.maxSteps must be a positive integer')
+          .default(10),
       })
-      .default({ maxSteps: 10 }),
-    mcpTools: z.array(McpServerSchema).optional().default([]),
+      .prefault({}),
+    mcpTools: z.array(McpServerSchema).default([]),
     output: z
       .discriminatedUnion('structured', [
-        z.object({ structured: z.literal(false) }),
-        z.object({ structured: z.literal(true), schema: JsonSchemaObject }),
+        z.strictObject({ structured: z.literal(false) }),
+        z.strictObject({ structured: z.literal(true), schema: JsonSchemaObject }),
       ])
       .default({ structured: false }),
     safety: z
-      .object({
+      .strictObject({
         compaction: z
-          .object({
-            triggerTokens: z.number().int().positive().default(100_000),
-            keepRecentMessages: z.number().int().positive().default(6),
+          .strictObject({
+            // Compared against the provider-reported input-token usage of the
+            // previous step — real tokens, not an estimate.
+            triggerTokens: z
+              .number()
+              .int('safety.compaction.triggerTokens must be a positive integer')
+              .positive('safety.compaction.triggerTokens must be a positive integer')
+              .default(100_000),
+            keepRecentMessages: z
+              .number()
+              .int('safety.compaction.keepRecentMessages must be a positive integer')
+              .positive('safety.compaction.keepRecentMessages must be a positive integer')
+              .default(6),
           })
-          .default({ triggerTokens: 100_000, keepRecentMessages: 6 }),
+          .prefault({}),
         toolOutput: z
-          .object({
-            triggerTokens: z.number().int().positive().default(4_000),
-            headChars: z.number().int().nonnegative().default(500),
-            tailChars: z.number().int().nonnegative().default(500),
+          .strictObject({
+            // Exact character threshold — tool outputs larger than this are
+            // summarized before entering the conversation history.
+            triggerChars: z
+              .number()
+              .int('safety.toolOutput.triggerChars must be a positive integer')
+              .positive('safety.toolOutput.triggerChars must be a positive integer')
+              .default(16_000),
+            headChars: z
+              .number()
+              .int('safety.toolOutput.headChars must be a non-negative integer')
+              .nonnegative('safety.toolOutput.headChars must be a non-negative integer')
+              .default(500),
+            tailChars: z
+              .number()
+              .int('safety.toolOutput.tailChars must be a non-negative integer')
+              .nonnegative('safety.toolOutput.tailChars must be a non-negative integer')
+              .default(500),
           })
-          .default({ triggerTokens: 4_000, headChars: 500, tailChars: 500 }),
+          .prefault({}),
+        approval: z
+          .strictObject({
+            // 'none' — no tool ever needs approval (default).
+            // 'all'  — every model-invoked tool needs human approval.
+            // 'selected' — only tools whose name matches a `tools` pattern.
+            mode: z
+              .enum(['none', 'all', 'selected'], {
+                error: 'safety.approval.mode must be one of: none, all, selected',
+              })
+              .default('none'),
+            // Glob-style name patterns (`*` wildcard), used when mode is
+            // 'selected', e.g. "delete_*", "send_email".
+            tools: z.array(z.string()).default([]),
+          })
+          .prefault({}),
       })
-      .default({
-        compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-        toolOutput: { triggerTokens: 4_000, headChars: 500, tailChars: 500 },
-      }),
+      .prefault({}),
     evals: z
-      .object({
-        dir: z.string().min(1),
+      .strictObject({
+        dir: z.string().min(1, 'evals.dir must not be empty'),
       })
       .optional(),
   })

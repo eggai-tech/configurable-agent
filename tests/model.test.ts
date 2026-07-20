@@ -24,7 +24,7 @@ describe('buildModel — openai-compatible provider', () => {
       };
       expect(() => buildModel(cfg)).not.toThrow();
     } finally {
-      if (original === undefined) process.env.OPENAI_BASE_URL = undefined;
+      if (original === undefined) delete process.env.OPENAI_BASE_URL;
       else process.env.OPENAI_BASE_URL = original;
     }
   });
@@ -40,7 +40,7 @@ describe('buildModel — openai-compatible provider', () => {
       };
       expect(() => buildModel(cfg)).not.toThrow();
     } finally {
-      if (original === undefined) process.env.OPENAI_API_KEY = undefined;
+      if (original === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = original;
     }
   });

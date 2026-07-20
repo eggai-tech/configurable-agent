@@ -225,4 +225,75 @@ model:
     expect(cfg.model.provider).toBe('openai-compatible');
     expect(cfg.model.baseUrl).toBe('http://localhost:11434/v1');
   });
+
+  it('rejects unknown keys in nested objects (typo protection for safety limits)', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "be helpful"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+agent:
+  maxstep: 3
+safety:
+  compation:
+    triggerTokens: 5
+`,
+    );
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  it('throws ConfigError for an invalid Handlebars systemPrompt at load time', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "broken {{#if}}"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+`,
+    );
+    expect(() => loadConfig(path)).toThrow(/Handlebars/);
+  });
+
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal env-var placeholder syntax is the feature under test
+  it('expands ${VAR} from the environment and supports the $${VAR} escape', () => {
+    process.env.CFG_TEST_TOKEN = 'secret-token';
+    try {
+      const path = write(
+        'config.yaml',
+        `systemPrompt: "Use $\${HOME} literally"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+mcpTools:
+  - name: svc
+    transport: http
+    url: https://svc.internal/mcp
+    headers:
+      authorization: Bearer \${CFG_TEST_TOKEN}
+`,
+      );
+      const cfg = loadConfig(path);
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the escape yields a literal placeholder
+      expect(cfg.systemPrompt).toBe('Use ${HOME} literally');
+      const server = cfg.mcpTools[0];
+      if (server?.transport !== 'http') throw new Error('expected http server');
+      expect(server.headers.authorization).toBe('Bearer secret-token');
+    } finally {
+      delete process.env.CFG_TEST_TOKEN;
+    }
+  });
+
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal env-var placeholder syntax is the feature under test
+  it('throws ConfigError naming every unset ${VAR} reference', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "\${CFG_TEST_MISSING_A} and \${CFG_TEST_MISSING_B}"
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+`,
+    );
+    expect(() => loadConfig(path)).toThrow(/CFG_TEST_MISSING_A.*CFG_TEST_MISSING_B/);
+  });
 });

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentEvent } from '../src/agent/events.js';
-import type { ToolResult } from '../src/agent/events.js';
+import type { AgentEvent, ToolResult } from '../src/agent/events.js';
 import { maybeSummarizeToolOutput } from '../src/agent/safety/tool-summary.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
@@ -13,7 +12,8 @@ function cfg(overrides: Partial<AgentConfig['safety']['toolOutput']> = {}): Agen
     output: { structured: false },
     safety: {
       compaction: { triggerTokens: 100_000, keepRecentMessages: 6 },
-      toolOutput: { triggerTokens: 50, headChars: 20, tailChars: 20, ...overrides },
+      toolOutput: { triggerChars: 200, headChars: 20, tailChars: 20, ...overrides },
+      approval: { mode: 'none', tools: [] },
     },
   };
 }
@@ -66,5 +66,38 @@ describe('maybeSummarizeToolOutput', () => {
     expect(out.label).toBe('some-tool');
     expect(out.return_code).toBeNull();
     expect(seen).toEqual([]);
+  });
+
+  it('falls back to truncation (still succeeded) when summarization throws', async () => {
+    const summarize = vi.fn(async () => {
+      throw new Error('summarizer offline');
+    });
+    const big = 'line of output '.repeat(200);
+    const out = await maybeSummarizeToolOutput(envelope(big), 'some-tool', {
+      config: cfg(),
+      summarize,
+    });
+
+    expect(summarize).toHaveBeenCalledTimes(1);
+    // The tool succeeded; a summarizer outage must not turn it into an error.
+    expect(out.status).toBe('succeeded');
+    expect(out.truncated).toBe(true);
+    expect(out.content).toContain('summary unavailable');
+    expect(out.content).toContain('HEAD');
+    expect(out.content).toContain('TAIL');
+  });
+
+  it('does not leak the full raw output when tailChars is 0', async () => {
+    const summarize = vi.fn(async () => 'short summary');
+    const big = `START${'x'.repeat(3000)}END`;
+    const out = await maybeSummarizeToolOutput(envelope(big), 'some-tool', {
+      config: cfg({ tailChars: 0 }),
+      summarize,
+    });
+
+    expect(out.truncated).toBe(true);
+    expect(out.content).not.toContain('END');
+    expect(out.content).not.toContain('TAIL');
+    expect(out.content.length).toBeLessThan(500);
   });
 });

@@ -47,8 +47,9 @@ mcpTools: []
 #     transport: stdio
 #     command: accounts-mcp
 #     args: []
-#     env:
-#       ACCOUNTS_URL: http://accounts:8080
+#     env:                      # child gets ONLY these vars (+ PATH/HOME/...),
+#       ACCOUNTS_URL: http://accounts:8080   # never the service's environment;
+#       MY_TOKEN: ${MY_TOKEN}                # use ${VAR} to pass one through
 #
 # Example HTTP server (remote MCP service):
 # mcpTools:
@@ -60,17 +61,31 @@ mcpTools: []
 
 safety:
   compaction:
-    # When the full message history exceeds this many (tiktoken-estimated) tokens,
-    # older turns are LLM-summarized before the next model call.
+    # When the provider-reported input-token usage of a step exceeds this,
+    # older turns are LLM-summarized before the next model call. Real usage
+    # from the API response — no local token estimation.
     triggerTokens: 100000
     # Number of most-recent messages to keep verbatim after compaction.
     keepRecentMessages: 6
   toolOutput:
-    # Tool results larger than this are replaced with an LLM summary plus
-    # head/tail excerpts before being added to conversation history.
-    triggerTokens: 4000
+    # Tool results larger than this many characters are replaced with an LLM
+    # summary plus head/tail excerpts before entering conversation history.
+    triggerChars: 16000
     headChars: 500
     tailChars: 500
+  approval:
+    # Human-in-the-loop tool gating.
+    #   none     - no tool ever needs approval (default)
+    #   all      - every model-invoked tool needs approval (todowrite exempt)
+    #   selected - only tools whose name matches a pattern below
+    mode: none
+    # Glob-style patterns (`*` wildcard), used when mode: selected.
+    tools: []
+    #   - "delete_*"
+    #   - "send_email"
+    # When approval is enabled the server REQUIRES TOOL_APPROVAL_SECRET (it
+    # refuses to start otherwise): the /invoke history is client-controlled,
+    # so unsigned approvals could be forged.
 
 output:
   structured: false

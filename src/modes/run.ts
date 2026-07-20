@@ -1,12 +1,14 @@
-import { type SpanContext, context, trace } from '@opentelemetry/api';
+import { context, type SpanContext, trace } from '@opentelemetry/api';
 import type { LanguageModel, ModelMessage } from 'ai';
+import { z } from 'zod';
 import { type AgentEvent, runAgent } from '../agent/loop.js';
 import { buildMcpRegistry } from '../agent/tools/mcp.js';
-import { InvokeRequestSchema } from '../api/request.js';
-import { type RunRecord, parseTraceparent, readAllStdin, writeRunRecord } from '../cli/stdio.js';
+import { parseInvokeRequest } from '../api/request.js';
+import { type RunRecord, readAllStdin, writeRunRecord } from '../cli/stdio.js';
 import { ConfigError, loadConfig } from '../config/load.js';
 import type { AgentConfig } from '../config/schema.js';
-import { shutdownTracing, startTracing } from '../observability/tracing.js';
+import { parseTraceparent, shutdownTracing, startTracing } from '../observability/tracing.js';
+import { errorMessage as errMsg } from '../util.js';
 
 const USAGE = `Usage: configurable-agent run --config <path-to-config.yaml>
 
@@ -50,11 +52,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
     return 2;
   }
 
-  const validated = InvokeRequestSchema.safeParse(parsedBody);
+  const validated = parseInvokeRequest(parsedBody);
   if (!validated.success) {
-    opts.stderr.write(
-      `stdin failed schema validation: ${JSON.stringify(validated.error.format())}\n`,
-    );
+    opts.stderr.write(`stdin failed schema validation:\n${z.prettifyError(validated.error)}\n`);
     return 2;
   }
 
@@ -75,13 +75,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
   const parentSpanCtx = parseTraceparent(opts.env.TRACEPARENT);
 
   try {
-    const record = await executeRun(
-      config,
-      validated.data.messages as ModelMessage[],
-      opts.modelOverride,
-      parentSpanCtx,
-    );
-    writeRunRecord(opts.stdout, record);
+    const record = await executeRun(config, validated.messages, opts.modelOverride, parentSpanCtx);
+    await writeRunRecord(opts.stdout, record);
     return 0;
   } catch (err) {
     opts.stderr.write(`configurable-agent run crashed: ${errMsg(err)}\n`);
@@ -141,12 +136,16 @@ class EventCollector {
   private finalText: string | undefined;
   private structured: unknown;
   private errorMessage: string | undefined;
+  private approvalHalt = false;
 
   collect(event: AgentEvent): void {
     switch (event.type) {
       case 'final':
         this.finalText = event.content;
         this.structured = event.structured;
+        break;
+      case 'run_paused':
+        this.approvalHalt = true;
         break;
       case 'error':
         if (this.errorMessage === undefined) this.errorMessage = event.message;
@@ -157,6 +156,15 @@ class EventCollector {
   }
 
   toRecord(): RunRecord {
+    // The CLI cannot answer an approval request (spec 004): report the halt
+    // explicitly instead of an empty, error-less failure record.
+    if (this.approvalHalt && this.finalText === undefined) {
+      return {
+        ok: false,
+        finalText: '',
+        error: this.errorMessage ?? 'run halted waiting for tool approval (CLI is non-interactive)',
+      };
+    }
     return {
       ok: this.finalText !== undefined && this.errorMessage === undefined,
       finalText: this.finalText ?? '',
@@ -173,14 +181,4 @@ function parseConfigFlag(argv: string[]): string | null {
     if (a?.startsWith('--config=')) return a.slice('--config='.length);
   }
   return null;
-}
-
-function errMsg(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
 }

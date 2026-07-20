@@ -1,10 +1,13 @@
-import { experimental_createMCPClient as createMCPClient } from '@ai-sdk/mcp';
-import type { experimental_MCPClient as MCPClient } from '@ai-sdk/mcp';
+import type { MCPClient } from '@ai-sdk/mcp';
+import { createMCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
-import { type Tool, type ToolSet, jsonSchema } from 'ai';
+import { jsonSchema, type Tool, type ToolSet } from 'ai';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
+import { logger } from '../../observability/logger.js';
+import { errorMessage, positiveIntFromEnv, safeJson } from '../../util.js';
 import type { ToolResult } from '../events.js';
-import { type ToolSummaryRuntime, maybeSummarizeToolOutput } from '../safety/tool-summary.js';
+import { toolResultToModelOutput } from '../events.js';
+import { maybeSummarizeToolOutput, type ToolSummaryRuntime } from '../safety/tool-summary.js';
 
 export interface McpRegistry {
   tools: ToolSet;
@@ -19,21 +22,16 @@ export interface McpRegistry {
 export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
   const clients: MCPClient[] = [];
   const allTools: Record<string, Tool> = {};
+  const discoveryTimeoutMs = positiveIntFromEnv('MCP_DISCOVERY_TIMEOUT_MS', 30_000);
 
   try {
     for (const server of cfg.mcpTools) {
-      const client = await createClientForServer(server);
-      clients.push(client);
-      const serverTools = (await client.tools()) as Record<string, Tool>;
-      normalizeToolSchemas(serverTools);
-      for (const toolName of Object.keys(serverTools)) {
-        if (Object.prototype.hasOwnProperty.call(allTools, toolName)) {
-          throw new Error(
-            `MCP tool name conflict: "${toolName}" is exposed by "${server.name}" but already registered by a previously loaded server`,
-          );
-        }
-      }
-      Object.assign(allTools, serverTools);
+      const serverTools = await discoverServerTools(server, clients, discoveryTimeoutMs);
+      mergeServerTools(allTools, serverTools, server.name);
+      logger.info(
+        { server: server.name, tools: Object.keys(serverTools).length },
+        'MCP server ready',
+      );
     }
   } catch (err) {
     await closeAll(clients);
@@ -41,23 +39,105 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
   }
 
   return {
-    tools: allTools as ToolSet,
+    tools: allTools,
     cleanup: () => closeAll(clients),
   };
 }
 
-async function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
+/**
+ * Connect one server and fetch its tool catalog, bounded by a timeout —
+ * neither connect nor discovery has a protocol-level timeout, and a hung
+ * server would otherwise block startup (and /health) forever. The client is
+ * registered in `clients` as soon as it exists, so it is closed on failure
+ * even when discovery times out afterwards. Errors name the offending server.
+ */
+async function discoverServerTools(
+  server: McpServerConfig,
+  clients: MCPClient[],
+  timeoutMs: number,
+): Promise<Record<string, Tool>> {
+  logger.debug({ server: server.name, transport: server.transport }, 'connecting to MCP server');
+
+  const connectAndDiscover = async (): Promise<Record<string, Tool>> => {
+    const client = await createClientForServer(server);
+    clients.push(client);
+    return client.tools();
+  };
+
+  let serverTools: Record<string, Tool>;
+  try {
+    serverTools = await withTimeout(
+      timeoutMs,
+      `MCP server "${server.name}" did not respond within ${timeoutMs}ms`,
+      connectAndDiscover,
+    );
+  } catch (err) {
+    throw new Error(
+      `MCP server "${server.name}" (${server.transport}) failed during discovery: ${errorMessage(err)}`,
+      { cause: err },
+    );
+  }
+
+  normalizeToolSchemas(serverTools);
+  return serverTools;
+}
+
+function mergeServerTools(
+  allTools: Record<string, Tool>,
+  serverTools: Record<string, Tool>,
+  serverName: string,
+): void {
+  for (const toolName of Object.keys(serverTools)) {
+    if (Object.hasOwn(allTools, toolName)) {
+      throw new Error(
+        `MCP tool name conflict: "${toolName}" is exposed by "${serverName}" but already registered by a previously loaded server`,
+      );
+    }
+  }
+  Object.assign(allTools, serverTools);
+}
+
+async function withTimeout<T>(ms: number, message: string, work: () => Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
+  // Transport-level failures outside a tool call (e.g. the child dying, a
+  // broken pipe) would otherwise be silent.
+  const onUncaughtError = (error: unknown) =>
+    logger.warn({ server: server.name, err: errorMessage(error) }, 'MCP client error');
+
   if (server.transport === 'stdio') {
     return createMCPClient({
+      onUncaughtError,
+      // Only the configured `env` reaches the child (plus the transport's safe
+      // defaults such as PATH/HOME) — never the full process environment, which
+      // holds provider API keys. Use `${VAR}` in the config to pass a specific
+      // variable through.
       transport: new Experimental_StdioMCPTransport({
         command: server.command,
         args: server.args,
         cwd: server.cwd,
-        env: { ...process.env, ...server.env } as Record<string, string>,
+        env: server.env,
+        // stderr stays 'inherit' (the default): the transport keeps its child
+        // process private, so piping stderr would leave it unread and block
+        // the child once the pipe buffer fills. Child diagnostics therefore
+        // pass through to fd 2 unstructured.
       }),
     });
   }
   return createMCPClient({
+    onUncaughtError,
     transport: {
       type: 'http',
       url: server.url,
@@ -114,7 +194,6 @@ export function normalizeJsonSchemaDraft2020(schema: unknown): unknown {
         out[exclusive] = out[bound];
         delete out[bound];
       } else {
-        // exclusiveMinimum: false (or no numeric bound) is just a plain bound
         delete out[exclusive];
       }
     }
@@ -126,16 +205,15 @@ export function normalizeJsonSchemaDraft2020(schema: unknown): unknown {
  * Wrap each tool's `execute()` so that MCP results are converted into the
  * `ToolResult` envelope and run through `maybeSummarizeToolOutput()` before they
  * are emitted to the caller AND before they are appended to message history.
- *
  * This is the seam that prevents oversized raw MCP output from leaking into the
  * next reasoning step.
  */
 export function wrapToolsWithSummarization(tools: ToolSet, ctx: ToolSummaryRuntime): ToolSet {
-  const wrapped: Record<string, Tool> = {};
+  const wrapped: ToolSet = {};
   for (const [name, t] of Object.entries(tools)) {
     wrapped[name] = wrapTool(name, t, ctx);
   }
-  return wrapped as ToolSet;
+  return wrapped;
 }
 
 type ExecuteFn = (input: unknown, options: unknown) => unknown | Promise<unknown>;
@@ -145,7 +223,7 @@ function wrapTool(name: string, t: Tool, ctx: ToolSummaryRuntime): Tool {
   if (typeof original !== 'function') {
     return t;
   }
-  const wrapped = {
+  return {
     ...t,
     async execute(input: unknown, options: unknown) {
       const start = Date.now();
@@ -153,18 +231,8 @@ function wrapTool(name: string, t: Tool, ctx: ToolSummaryRuntime): Tool {
       const envelope = mcpResultToEnvelope(raw, name, input, Date.now() - start);
       return maybeSummarizeToolOutput(envelope, name, ctx);
     },
-    // AI SDK v6 invokes toModelOutput with { toolCallId, input, output }, where
-    // `output` is the value returned by execute() (our ToolResult envelope).
-    toModelOutput({ output }: { output: unknown }) {
-      const env = output as ToolResult;
-      const text = typeof env?.content === 'string' ? env.content : safeJson(env);
-      if (env?.status === 'error') {
-        return { type: 'error-text', value: text } as const;
-      }
-      return { type: 'text', value: text } as const;
-    },
-  };
-  return wrapped as unknown as Tool;
+    toModelOutput: toolResultToModelOutput,
+  } as Tool;
 }
 
 function mcpResultToEnvelope(
@@ -208,12 +276,4 @@ function mcpResultToEnvelope(
     args,
     duration_ms: durationMs,
   };
-}
-
-function safeJson(v: unknown): string {
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
 }
