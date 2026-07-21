@@ -2,26 +2,26 @@
 
 ## Original request (lightly cleaned)
 
-Nella configurazione di questo agent c'è un'integrazione del server MCP di Harvest.
-Voglio integrare un mock per testare vari scenari.
+The configuration of this agent includes an integration with the Harvest MCP server.
+I want to integrate a mock to test various scenarios.
 
-Il mock deve pescare i dati da un file JSON nella cartella `examples/harvest`. Alla
-fine del processo si genera questo file, che (forse) darò in input al mock.
+The mock must pull its data from a JSON file in the `examples/harvest` folder. At the
+end of the process this file is generated, which I will (perhaps) feed as input to the mock.
 
-Sono state fornite tutte le chiamate che l'MCP fa, prese dall'output SSE dell'agente
-(`event: tool_call` / `event: tool_result`). Le tool call osservate sono:
+All the calls that the MCP makes have been provided, taken from the agent's SSE output
+(`event: tool_call` / `event: tool_result`). The observed tool calls are:
 
 - `list_users` → `{ users, total_count, limit, truncated }`
-- `list_projects` con `search` → `{ projects, total_count, limit, truncated }`
-- `list_time_entries` con `project_id`, `from`, `to` → `{ time_entries, limit, truncated, next_cursor, scope_limited }`
-- (più `todowrite`, che è un tool interno dell'agente, non MCP)
+- `list_projects` with `search` → `{ projects, total_count, limit, truncated }`
+- `list_time_entries` with `project_id`, `from`, `to` → `{ time_entries, limit, truncated, next_cursor, scope_limited }`
+- (plus `todowrite`, which is an internal tool of the agent, not MCP)
 
-## Decisioni prese (via domande)
+## Decisions made (via questions)
 
-1. **Formato fixture**: dataset grezzo (`users`, `projects`, `time_entries`) + logica
-   di filtraggio implementata nel mock. Massima flessibilità per costruire scenari
-   editando il dataset.
-2. **Transport**: `http` — il mock è un server HTTP separato (come il vero Harvest),
-   l'agente ci si collega via `url`.
-3. **Generatore**: sì — includere uno script che parsa un dump SSE dell'agente e
-   produce la fixture nel formato del mock.
+1. **Fixture format**: raw dataset (`users`, `projects`, `time_entries`) + filtering
+   logic implemented in the mock. Maximum flexibility to build scenarios by editing
+   the dataset.
+2. **Transport**: `http` — the mock is a separate HTTP server (like the real Harvest),
+   the agent connects to it via `url`.
+3. **Generator**: yes — include a script that parses an SSE dump from the agent and
+   produces the fixture in the mock's format.

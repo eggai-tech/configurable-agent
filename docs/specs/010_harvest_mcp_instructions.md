@@ -2,23 +2,23 @@
 
 ## User request (verbatim / lightly cleaned)
 
-> Come posso aggiungere questo MCP e farlo funzionare con l'autenticazione?
+> How can I add this MCP and make it work with authentication?
 > https://support.getharvest.com/hc/en-us/articles/46293697226381-Harvest-MCP
 >
-> Voglio aggiungerlo a questo progetto (configurable agent), tramite il file di
-> configurazione (`config.yaml`). Usa questi header:
+> I want to add it to this project (configurable agent), via the
+> configuration file (`config.yaml`). Use these headers:
 > - `Harvest-Account-ID: 2029314`
 > - `Authorization: Bearer <PAT>`
 > - `User-Agent: configurable-agent`
 
 Follow-up questions during the session:
 
-- L'attuale API può ricevere un file in input da dare all'agent?
-- Con che comando parte il server?
-- Errore: `Token was not issued for the MCP server. Re-authorize via Claude Code
-  (or your MCP client) with the MCP scope.` → ho creato un'app OAuth in Harvest,
-  generami uno script node per tutto il flusso (client id/secret + redirect
+- Can the current API accept a file as input to give to the agent?
+- What command starts the server?
+- Error: `Token was not issued for the MCP server. Re-authorize via Claude Code
+  (or your MCP client) with the MCP scope.` → I created an OAuth app in Harvest,
+  generate a node script for me covering the whole flow (client id/secret + redirect
   `http://localhost:3000`).
-- Errore `ZodError ... expected object, received null` allo startup
-  (`mcp registry initialization failed`) → aggiorna tutti i package `@ai-sdk` e
-  `ai` alle versioni più recenti.
+- Error `ZodError ... expected object, received null` at startup
+  (`mcp registry initialization failed`) → update all `@ai-sdk` and `ai` packages
+  to the latest versions.
