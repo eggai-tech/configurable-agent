@@ -45,10 +45,16 @@ export async function maybeSummarizeToolOutput(
   try {
     summary = await ctx.summarize(summaryPrompt);
   } catch (err) {
-    logger.warn(
-      { tool: toolName, err: errorMessage(err) },
-      'tool-output summarization failed; falling back to truncation',
-    );
+    if (ctx.config.acs) {
+      // Keep provider diagnostics out of logs in guarded runs. The caller checks
+      // cancellation and reviews the resulting excerpt before it is consumed.
+      logger.warn({ tool: toolName }, 'tool-output summarization failed');
+    } else {
+      logger.warn(
+        { tool: toolName, err: errorMessage(err) },
+        'tool-output summarization failed; falling back to truncation',
+      );
+    }
   }
 
   const parts = summary

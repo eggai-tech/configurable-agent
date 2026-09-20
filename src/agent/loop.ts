@@ -10,6 +10,9 @@ import {
   streamText,
   type ToolSet,
 } from 'ai';
+import { AcsSession } from '../acs/client.js';
+import { AcsError } from '../acs/protocol.js';
+import { AcsRuntime } from '../acs/runtime.js';
 import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
 import { telemetryOptions } from '../observability/tracing.js';
@@ -26,6 +29,8 @@ export type { AgentEmitter, AgentEvent } from './events.js';
 
 export interface RunAgentOptions {
   model?: LanguageModel;
+  /** Optional UUID correlating an ACS session with the enclosing invocation. */
+  sessionId?: string;
   /** Request data exposed as `request` in the system prompt template. */
   context?: Record<string, unknown>;
   /**
@@ -42,6 +47,79 @@ export async function runAgent(
   emit: AgentEmitter,
   abortSignal?: AbortSignal,
   options: RunAgentOptions = {},
+): Promise<void> {
+  if (!config.acs) return runAgentLoop(config, incoming, emit, abortSignal, options);
+  let session: AcsSession | undefined;
+  let completed = false;
+  let reportedError = false;
+  const guardedEmit: AgentEmitter = async (event) => {
+    if (event.type === 'error') {
+      reportedError = true;
+      const failure = session?.failure;
+      await emit({
+        type: 'error',
+        code: failure?.code ?? event.code,
+        message:
+          failure?.message ??
+          (event.code.startsWith('acs_') ? event.message : 'The guarded agent run failed.'),
+      });
+    } else {
+      if (event.type === 'final') completed = true;
+      await emit(event);
+    }
+  };
+  try {
+    if (config.safety.approval.mode !== 'none') throw new AcsError('acs_configuration_error');
+    session = new AcsSession(config.acs, abortSignal, options.sessionId, (record) =>
+      guardedEmit({ type: 'acs_decision', ...record }),
+    );
+    await session.start();
+    const model = options.model ?? buildModel(config.model);
+    const activeSession = session;
+    const signal = session.signal;
+    const guard = new AcsRuntime(session, config, guardedEmit, async (prompt) => {
+      activeSession.assertActive();
+      const result = await generateText({
+        model,
+        prompt,
+        abortSignal: signal,
+        telemetry: telemetryOptions('configurable-agent.summarize', true),
+      });
+      return result.text;
+    });
+    const approved = await guard.input(incoming, options.context);
+    await session.beginTurn();
+    await runAgentLoop(
+      config,
+      approved.messages,
+      guardedEmit,
+      signal,
+      { ...options, model, context: approved.context },
+      guard,
+    );
+    if (session.failure && !reportedError) throw session.failure;
+  } catch (error) {
+    if (!abortSignal?.aborted && !reportedError) {
+      const failure = session?.failure ?? (error instanceof AcsError ? error : undefined);
+      await guardedEmit({
+        type: 'error',
+        code: failure?.code ?? 'agent_failed',
+        message: failure?.message ?? 'The guarded agent run failed.',
+      });
+    }
+  } finally {
+    session?.controller.abort();
+    await session?.close(abortSignal?.aborted ? 'cancelled' : completed ? 'completed' : 'error');
+  }
+}
+
+async function runAgentLoop(
+  config: AgentConfig,
+  incoming: ModelMessage[],
+  emit: AgentEmitter,
+  abortSignal?: AbortSignal,
+  options: RunAgentOptions = {},
+  guard?: AcsRuntime,
 ): Promise<void> {
   let messages: ModelMessage[];
   try {
@@ -62,7 +140,7 @@ export async function runAgent(
       model,
       prompt,
       abortSignal,
-      telemetry: telemetryOptions('configurable-agent.summarize'),
+      telemetry: telemetryOptions('configurable-agent.summarize', !!guard),
     });
     return text;
   };
@@ -76,25 +154,27 @@ export async function runAgent(
     rawTools = registry.tools;
     cleanup = registry.cleanup;
   }
-  const todoStore = createTodoStore();
-  const tools = {
-    ...wrapToolsWithSummarization(rawTools, { config, summarize }),
-    todowrite: createTodoWriteTool(todoStore),
-  };
-
-  // Human-in-the-loop approval (AI SDK native). Gated calls surface a
-  // `tool-approval-request` instead of executing; the loop pauses and the
-  // client resolves it on the next request. TOOL_APPROVAL_SECRET (optional)
-  // HMAC-signs approvals so a client cannot forge one for the stateless
-  // /invoke history.
-  const approval = config.safety.approval;
-  const toolApproval =
-    approval.mode === 'none'
-      ? undefined
-      : ({ toolCall }: { toolCall: { toolName: string } }) =>
-          toolNeedsApproval(toolCall.toolName, approval) ? ('user-approval' as const) : undefined;
-
   try {
+    const todoStore = createTodoStore();
+    const tools = guard
+      ? guard.wrapTools({ ...rawTools, todowrite: createTodoWriteTool(todoStore) })
+      : {
+          ...wrapToolsWithSummarization(rawTools, { config, summarize }),
+          todowrite: createTodoWriteTool(todoStore),
+        };
+
+    // Human-in-the-loop approval (AI SDK native). Gated calls surface a
+    // `tool-approval-request` instead of executing; the loop pauses and the
+    // client resolves it on the next request. TOOL_APPROVAL_SECRET (optional)
+    // HMAC-signs approvals so a client cannot forge one for the stateless
+    // /invoke history.
+    const approval = config.safety.approval;
+    const toolApproval =
+      approval.mode === 'none'
+        ? undefined
+        : ({ toolCall }: { toolCall: { toolName: string } }) =>
+            toolNeedsApproval(toolCall.toolName, approval) ? ('user-approval' as const) : undefined;
+
     const stream = streamText({
       model,
       messages,
@@ -105,18 +185,21 @@ export async function runAgent(
       toolApproval,
       experimental_toolApprovalSecret: process.env.TOOL_APPROVAL_SECRET,
       stopWhen: stepCountIs(maxSteps),
-      prepareStep: async ({ stepNumber, steps: priorSteps, messages: stepMessages }) => ({
-        messages: await maybeCompactMessages({
-          messages: stepMessages,
-          lastInputTokens: priorSteps.at(-1)?.usage.inputTokens,
-          config,
-          summarize,
-          emit,
-          abortSignal,
-        }),
-        // The final step must produce a text answer, not more tool calls.
-        ...(stepNumber === maxSteps - 1 ? { toolChoice: 'none' as const } : {}),
-      }),
+      prepareStep: async ({ stepNumber, steps: priorSteps, messages: stepMessages }) => {
+        guard?.session.assertActive();
+        return {
+          messages: await maybeCompactMessages({
+            messages: guard ? guard.history(stepMessages) : stepMessages,
+            lastInputTokens: priorSteps.at(-1)?.usage.inputTokens,
+            config,
+            summarize,
+            emit,
+            abortSignal,
+            guard,
+          }),
+          ...(stepNumber === maxSteps - 1 ? { toolChoice: 'none' as const } : {}),
+        };
+      },
       ...(config.output.structured
         ? { output: Output.object({ schema: jsonSchema(config.output.schema) }) }
         : {}),
@@ -124,7 +207,7 @@ export async function runAgent(
       topP: config.model.topP,
       maxOutputTokens: config.model.maxOutputTokens,
       abortSignal,
-      telemetry: telemetryOptions('configurable-agent.agent'),
+      telemetry: telemetryOptions('configurable-agent.agent', !!guard),
     });
 
     let steps = 0;
@@ -138,17 +221,18 @@ export async function runAgent(
           stepText = '';
           break;
         case 'reasoning-delta':
-          await emit({ type: 'reasoning', text: part.text });
+          if (!guard) await emit({ type: 'reasoning', text: part.text });
           break;
         case 'text-delta':
           stepText += part.text;
           // In structured mode the text stream is the raw JSON of the final
           // object — never a deliverable to stream to the client.
-          if (!config.output.structured) {
+          if (!config.output.structured && !guard) {
             await emit({ type: 'content_delta', text: part.text });
           }
           break;
         case 'tool-call':
+          if (guard) break;
           await emit({
             type: 'tool_call',
             id: part.toolCallId,
@@ -157,11 +241,17 @@ export async function runAgent(
           });
           break;
         case 'tool-result': {
+          if (guard) break;
           const envelope = toToolResultEnvelope(part.output, part.toolName, part.input);
           await emit({ type: 'tool_result', id: part.toolCallId, output: envelope });
           break;
         }
         case 'tool-error': {
+          if (guard) {
+            guard.session.assertActive();
+            await guard.toolError(part.toolCallId, part.toolName);
+            break;
+          }
           const envelope: ToolResult = {
             label: part.toolName,
             status: 'error',
@@ -174,6 +264,7 @@ export async function runAgent(
           break;
         }
         case 'tool-approval-request': {
+          if (guard) throw new AcsError('acs_protocol_error');
           paused = true;
           await emit({
             type: 'tool_approval_requested',
@@ -200,6 +291,7 @@ export async function runAgent(
           break;
         }
         case 'tool-output-denied': {
+          if (guard) throw new AcsError('acs_protocol_error');
           // Our policy only ever asks for user approval (never auto-denies),
           // so a denied output always means a human declined the call.
           await emit({
@@ -220,7 +312,14 @@ export async function runAgent(
         case 'abort':
           return;
         case 'error': {
-          await emitStreamError(emit, part.error, stepText);
+          if (guard) {
+            if (part.error instanceof AcsError) throw part.error;
+            await emit({
+              type: 'error',
+              code: 'stream_error',
+              message: 'The guarded model stream failed.',
+            });
+          } else await emitStreamError(emit, part.error, stepText);
           return;
         }
         default:
@@ -270,11 +369,20 @@ export async function runAgent(
       }
     }
 
+    let approvedResponse: { content: string; structured?: unknown } | undefined;
+    if (guard) {
+      guard.session.assertActive();
+      approvedResponse = await guard.response(stepText, structured);
+      if (!config.output.structured && approvedResponse.content) {
+        await emit({ type: 'content_delta', text: approvedResponse.content });
+      }
+    }
     const usage = await stream.usage;
     await emit({
       type: 'final',
       content: structured !== undefined ? '' : stepText,
       ...(structured !== undefined ? { structured } : {}),
+      ...approvedResponse,
       stopReason: finishReason,
       steps,
       truncated: false,
@@ -283,7 +391,8 @@ export async function runAgent(
   } catch (err) {
     // A client cancellation is not an agent failure — end quietly.
     if (abortSignal?.aborted) return;
-    logger.error({ err }, 'agent run failed');
+    if (guard && err instanceof AcsError) throw err;
+    if (!guard) logger.error({ err }, 'agent run failed');
     await emit({
       type: 'error',
       code: 'agent_failed',

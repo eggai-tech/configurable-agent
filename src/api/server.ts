@@ -157,6 +157,7 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
             tools,
             model,
             context: parsed.context,
+            sessionId: requestId,
           });
           logger.info({ requestId, durationMs: Date.now() - startedAt }, 'invoke finished');
         } catch (err) {

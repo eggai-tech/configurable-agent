@@ -21,6 +21,10 @@ interface CompactionInputs {
   summarize: Summarizer;
   emit: AgentEmitter;
   abortSignal?: AbortSignal;
+  guard?: {
+    beforeCompact(messages: ModelMessage[]): Promise<{ entries: string[]; chainHash: string }>;
+    afterCompact(summary: string, state: { entries: string[]; chainHash: string }): Promise<string>;
+  };
 }
 
 export async function maybeCompactMessages({
@@ -30,6 +34,7 @@ export async function maybeCompactMessages({
   summarize,
   emit,
   abortSignal,
+  guard,
 }: CompactionInputs): Promise<ModelMessage[]> {
   if (lastInputTokens === undefined || lastInputTokens <= config.safety.compaction.triggerTokens) {
     return messages;
@@ -43,6 +48,7 @@ export async function maybeCompactMessages({
 
   const earlier = compactable.slice(0, split);
   const recent = compactable.slice(split);
+  const guardState = await guard?.beforeCompact(earlier);
 
   await emit({ type: 'compaction_start', before: snapshot(messages) });
 
@@ -71,11 +77,12 @@ export async function maybeCompactMessages({
   } catch (err) {
     if (abortSignal?.aborted) throw err;
     logger.warn(
-      { err: errorMessage(err) },
+      guard ? {} : { err: errorMessage(err) },
       'context compaction summarization failed; dropping earlier turns without a summary',
     );
     summary = '[earlier conversation omitted — summarization unavailable]';
   }
+  if (guard && guardState) summary = await guard.afterCompact(summary, guardState);
 
   // The summary rides as a user message: providers such as Anthropic reject a
   // conversation whose first non-system message is not user-role, which would

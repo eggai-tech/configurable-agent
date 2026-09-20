@@ -26,7 +26,7 @@ export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
 
   try {
     for (const server of cfg.mcpTools) {
-      const serverTools = await discoverServerTools(server, clients, discoveryTimeoutMs);
+      const serverTools = await discoverServerTools(server, clients, discoveryTimeoutMs, !!cfg.acs);
       mergeServerTools(allTools, serverTools, server.name);
       logger.info(
         { server: server.name, tools: Object.keys(serverTools).length },
@@ -55,11 +55,12 @@ async function discoverServerTools(
   server: McpServerConfig,
   clients: MCPClient[],
   timeoutMs: number,
+  guarded = false,
 ): Promise<Record<string, Tool>> {
   logger.debug({ server: server.name, transport: server.transport }, 'connecting to MCP server');
 
   const connectAndDiscover = async (): Promise<Record<string, Tool>> => {
-    const client = await createClientForServer(server);
+    const client = await createClientForServer(server, guarded);
     clients.push(client);
     return client.tools();
   };
@@ -111,11 +112,14 @@ async function withTimeout<T>(ms: number, message: string, work: () => Promise<T
   }
 }
 
-function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
+function createClientForServer(server: McpServerConfig, guarded: boolean): Promise<MCPClient> {
   // Transport-level failures outside a tool call (e.g. the child dying, a
   // broken pipe) would otherwise be silent.
   const onUncaughtError = (error: unknown) =>
-    logger.warn({ server: server.name, err: errorMessage(error) }, 'MCP client error');
+    logger.warn(
+      { server: server.name, ...(guarded ? {} : { err: errorMessage(error) }) },
+      'MCP client error',
+    );
 
   if (server.transport === 'stdio') {
     return createMCPClient({
@@ -235,7 +239,7 @@ function wrapTool(name: string, t: Tool, ctx: ToolSummaryRuntime): Tool {
   } as Tool;
 }
 
-function mcpResultToEnvelope(
+export function mcpResultToEnvelope(
   raw: unknown,
   toolName: string,
   args: unknown,

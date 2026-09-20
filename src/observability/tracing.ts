@@ -56,9 +56,16 @@ export async function shutdownTracing(): Promise<void> {
  * operators handling sensitive data opt out with OTEL_RECORD_CONTENT=0, which
  * keeps metadata spans (model, usage, latency) but strips inputs/outputs.
  */
-export function telemetryOptions(functionId: string): TelemetryOptions {
-  const recordContent = !['0', 'false'].includes(process.env.OTEL_RECORD_CONTENT ?? '');
-  return { functionId, recordInputs: recordContent, recordOutputs: recordContent };
+export function telemetryOptions(functionId: string, guarded = false): TelemetryOptions {
+  const recordContent = !guarded && !['0', 'false'].includes(process.env.OTEL_RECORD_CONTENT ?? '');
+  // The SDK's OTel integration records raw exception messages even with content
+  // recording off. Guarded runs retain outer invocation spans and ACS audit logs.
+  return {
+    functionId,
+    recordInputs: recordContent,
+    recordOutputs: recordContent,
+    ...(guarded ? { isEnabled: false } : {}),
+  };
 }
 
 const TRACEPARENT_RE = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;

@@ -46,6 +46,7 @@ export class AcsSession {
   private timeoutMethods: Record<string, number> = {};
   private started = false;
   private turnId?: string;
+  private turnDenied = false;
   private count = 0;
   private closed = false;
   readonly contentEntries: string[] = [];
@@ -114,7 +115,16 @@ export class AcsSession {
 
   async beginTurn(): Promise<void> {
     this.turnId = randomUUID();
-    await this.require('steps/turnStart', { turn_id: this.turnId, triggered_by: 'user_message' });
+    this.count = 0;
+    try {
+      await this.require('steps/turnStart', { turn_id: this.turnId, triggered_by: 'user_message' });
+    } catch (error) {
+      this.turnDenied = error instanceof AcsError && error.code === 'acs_denied';
+      throw error;
+    } finally {
+      // turnEnd counts observations strictly between turnStart and turnEnd.
+      this.count = 0;
+    }
   }
 
   async check(
@@ -175,6 +185,7 @@ export class AcsSession {
       };
       logger.info(record, 'ACS decision');
       await this.record?.(record);
+      this.assertActive();
       return { payload: effective === 'deny' ? null : approved, requestId };
     });
   }
@@ -201,7 +212,11 @@ export class AcsSession {
             'steps/turnEnd',
             {
               turn_id: this.turnId,
-              outcome: reason === 'cancelled' ? 'interrupted' : reason,
+              outcome: this.turnDenied
+                ? 'denied_at_start'
+                : reason === 'cancelled'
+                  ? 'interrupted'
+                  : reason,
               step_count: this.count,
             },
             randomUUID(),

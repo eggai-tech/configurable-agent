@@ -118,7 +118,10 @@ export function signEnvelope(
   key: Buffer,
   keyId: string,
 ): Signature {
-  const copy = structuredClone(envelope);
+  const copy =
+    'params' in envelope
+      ? { ...envelope, params: { ...envelope.params } }
+      : { ...envelope, result: { ...envelope.result } };
   const body = 'params' in copy ? copy.params : copy.result;
   delete body.signature;
   const canonical = canonicalize(copy);

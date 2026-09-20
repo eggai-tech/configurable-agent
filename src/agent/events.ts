@@ -21,6 +21,7 @@ export interface SizeSnapshot {
 }
 
 export type AgentEvent =
+  | ({ type: 'acs_decision' } & import('../acs/client.js').AcsDecisionRecord)
   | { type: 'reasoning'; text: string }
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | { type: 'tool_result'; id: string; output: ToolResult }
