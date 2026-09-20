@@ -26,7 +26,7 @@ export type { AgentEmitter, AgentEvent } from './events.js';
 
 export interface RunAgentOptions {
   model?: LanguageModel;
-  /** Request data exposed as `context` in the system prompt template. */
+  /** Request data exposed as `request` in the system prompt template. */
   context?: Record<string, unknown>;
   /**
    * Pre-built, validated MCP tool map. When provided, the loop reuses it

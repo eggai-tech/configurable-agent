@@ -134,7 +134,7 @@ describe('configurable-agent run CLI', () => {
     const model = mockModel([textStream('hello')]);
     const r = await invoke({
       dir,
-      configYaml: BASE_YAML.replace('SYSTEM', 'Hello {{context.user.name}}'),
+      configYaml: BASE_YAML.replace('SYSTEM', 'Hello {{request.user.name}}'),
       stdinBody: JSON.stringify({
         messages: [{ role: 'user', content: 'hi' }],
         context: { user: { name: 'Nicolas' } },

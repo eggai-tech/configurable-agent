@@ -8,10 +8,10 @@ systemPrompt: |
 #   {{now}}    — ISO datetime at invocation
 #   {{today}}  — YYYY-MM-DD at invocation
 #   {{cwd}}    — process working directory
-# Plus any keys you define under promptVars below.
-# Per-request data: {{context.tenant.name}} from the optional
+# Configured data: {{config.teamName}} from promptVars below.
+# Per-request data: {{request.tenant.name}} from the optional
 # context input object. Missing referenced values fail the run;
-# use {{#if context.locale}}...{{else}}...{{/if}} for optional data.
+# use {{#if request.locale}}...{{else}}...{{/if}} for optional data.
 # promptVars:
 #   teamName: Platform
 

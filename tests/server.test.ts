@@ -181,7 +181,7 @@ describe('POST /invoke — system prompt context', () => {
     writeFileSync(
       path,
       `systemPrompt: >-
-  You are the {{team}} assistant for {{context.tenant.name}}. Today is {{today}}.
+  You are the {{config.team}} assistant for {{request.tenant.name}}. Today is {{today}}.
 promptVars:
   team: Platform
 model:

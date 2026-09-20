@@ -133,21 +133,21 @@ variables are always available:
 - `{{now}}` — current timestamp (ISO 8601)
 - `{{cwd}}` — the process working directory
 
-Add your own values under `promptVars` and reference them the same way:
+Add your own values under `promptVars` and reference them with the `config.` prefix:
 
 ```yaml
 systemPrompt: |
-  You are the {{team}} assistant. Today is {{today}}.
+  You are the {{config.team}} assistant. Today is {{today}}.
 promptVars:
   team: Platform
 ```
 
-For values that vary per request, send an optional `context`
-object and reference it by name in the template:
+For values that vary per request, send an optional `context` object and reference
+its fields with the `request.` prefix in the template:
 
 ```yaml
 systemPrompt: |
-  You are the {{team}} assistant for {{context.tenant.name}}.
+  You are the {{config.team}} assistant for {{request.tenant.name}}.
 promptVars:
   team: Platform
 ```
@@ -159,16 +159,18 @@ promptVars:
 }
 ```
 
-The context is available only for that invocation; it does not override
-`promptVars` or built-in variables. Resend it on follow-up requests and tool
-approval resumes. HTTP `/invoke` and CLI stdin accept the same input.
+`config` contains only the YAML `promptVars`; `request` contains only the input
+`context`. These values are not exposed at the top level and cannot override
+built-in variables. Request context is available only for that invocation;
+resend it on follow-up requests and tool approval resumes. HTTP `/invoke` and
+CLI stdin accept the same input.
 
 Templates render in strict Handlebars mode: referencing a missing variable,
 including a missing context field, fails before the model is called. Over HTTP,
 the response is an SSE stream with an `error` event whose code is
 `invalid_prompt_context`, and no `final` event. The CLI returns a run record with
 `ok: false` and an error message. Use a conditional for optional data, for example
-`{{#if context.locale}}{{context.locale}}{{else}}en{{/if}}`.
+`{{#if request.locale}}{{request.locale}}{{else}}en{{/if}}`.
 Template syntax is checked at startup; variable availability is checked when
 each request is rendered.
 

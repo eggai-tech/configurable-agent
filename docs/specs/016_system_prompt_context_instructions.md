@@ -11,3 +11,9 @@ Make sure these changes are in a branch, then committed and pushed to origin.
 The branch should be `nicolas/required-improvements-for-control-plane`.
 
 Follow-up: Let's rename `system_prompt_context` to only `context`.
+
+Follow-up: `promptVars` should be available to the system prompt template under
+the `config.` prefix. `context` in the request should be available to the system
+prompt template under the `request.` prefix. For example, `promptVars: { team:
+foobar }` and a request with `context: { weather: "sunny" }` should make both
+`config.team` and `request.weather` available.

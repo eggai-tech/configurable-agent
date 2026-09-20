@@ -22,7 +22,7 @@ export function renderSystemPrompt(
   };
   return template({
     ...builtins,
-    ...(config.promptVars ?? {}),
-    context,
+    config: config.promptVars ?? {},
+    request: context,
   });
 }

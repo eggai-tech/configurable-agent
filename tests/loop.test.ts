@@ -67,16 +67,19 @@ describe('prepareMessages', () => {
     expect(system.content).not.toContain('{{');
   });
 
-  it('renders user-supplied promptVars alongside built-ins', () => {
+  it('renders config and request namespaces without overriding built-ins', () => {
     const cfg = baseConfig();
-    cfg.systemPrompt = 'team={{team}} today={{today}}';
-    cfg.promptVars = { team: 'Platform' };
-    const out = prepareMessages(cfg, []);
+    cfg.systemPrompt =
+      'team={{config.team}} weather={{request.weather}} today={{today}} configuredToday={{config.today}}';
+    cfg.promptVars = { team: 'foobar', today: 'configured date' };
+    const out = prepareMessages(cfg, [], { weather: 'sunny', today: 'request date' });
     const system = out[0];
     if (system?.role !== 'system' || typeof system.content !== 'string') {
       throw new Error('expected string system message');
     }
-    expect(system.content.startsWith('team=Platform today=')).toBe(true);
+    expect(system.content).toMatch(
+      /^team=foobar weather=sunny today=\d{4}-\d{2}-\d{2} configuredToday=configured date$/,
+    );
   });
 });
 
