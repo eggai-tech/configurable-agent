@@ -2,7 +2,7 @@
 
 Turn a single YAML file into a running LLM agent with an HTTP API. You define the
 system prompt, model, tools, and safety limits; the service runs the tool-use
-loop and streams every step back to your client over Server-Sent Events.
+loop and sends progress and answers to your client over Server-Sent Events.
 
 Works with Anthropic, OpenAI, Google, or any OpenAI-compatible endpoint
 (including local [ollama](https://ollama.com)), connects external tools via the
@@ -30,6 +30,10 @@ templates access YAML `promptVars` as `{{config.team}}` and request `context`
 as `{{request.weather}}`. See [Prompt templating](docs/user-guide.md#prompt-templating)
 for a complete example.
 
+Connect an external ACS Guardian with the optional `acs` configuration block.
+The agent enforces its decisions and releases only checked output. See
+[ACS integration](docs/acs.md) for configuration and the Guardian wire contract.
+
 ## Documentation
 
 The full **[User Guide](docs/user-guide.md)** covers:
@@ -42,6 +46,7 @@ The full **[User Guide](docs/user-guide.md)** covers:
   - [Tools](docs/user-guide.md#tools)
   - [Structured output](docs/user-guide.md#structured-output)
   - [Safety: compaction, summarization, and approval](docs/user-guide.md#safety)
+- [ACS Guardian integration](docs/acs.md)
 - [HTTP API](docs/user-guide.md#http-api)
   - [Endpoints](docs/user-guide.md#endpoints)
   - [Request format](docs/user-guide.md#request-format)

@@ -1,0 +1,19 @@
+systemPrompt: |
+  You are a helpful assistant for {{config.team}}.
+  The weather is {{request.weather}}.
+promptVars:
+  team: example
+model:
+  provider: openai
+  name: gpt-4.1-mini
+agent:
+  maxSteps: 10
+acs:
+  guardianUrl: http://127.0.0.1:8080/acs
+  agentId: configurable-agent
+  keyId: local-agent-key
+  secretEnv: ACS_SHARED_SECRET
+  timeoutMs: 10000
+safety:
+  approval:
+    mode: none

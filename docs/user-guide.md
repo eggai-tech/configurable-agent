@@ -13,6 +13,7 @@ introduction and install steps, see the [project README](../README.md).
   - [Tools](#tools)
   - [Structured output](#structured-output)
   - [Safety](#safety)
+  - [ACS Guardian](#acs-guardian)
 - [HTTP API](#http-api)
   - [Endpoints](#endpoints)
   - [Request format](#request-format)
@@ -29,11 +30,14 @@ introduction and install steps, see the [project README](../README.md).
   endpoint (including local [ollama](https://ollama.com)).
 - **External tools via MCP** — connect any Model Context Protocol server over
   stdio or HTTP; the agent discovers and uses its tools.
-- **Streaming** — reasoning, text, tool calls, and results stream live over SSE.
+- **Streaming** — progress and answers are delivered over SSE; ACS mode releases
+  checked tool events and buffers the answer until approved.
 - **Structured output** — optionally validate the final answer against a JSON
   Schema.
 - **Human-in-the-loop approval** — require a person to approve sensitive tool
   calls before they run.
+- **External ACS Guardian** — enforce remote decisions with signed ACS v0.1
+  checks for inputs, tools, responses, and compaction.
 - **Built-in safety** — automatic conversation compaction and tool-output
   summarization keep long runs within context limits.
 
@@ -272,6 +276,30 @@ run — see [Resolving a tool approval](#resolving-a-tool-approval).
 > rejects any that were forged or tampered with. Every instance that serves
 > requests must share the same secret.
 
+### ACS Guardian
+
+Set an optional `acs` block to enforce decisions from an external ACS Guardian:
+
+```yaml
+acs:
+  guardianUrl: https://guardian.example.com/acs
+  agentId: configurable-agent
+  keyId: agent-key
+  secretEnv: ACS_SHARED_SECRET
+  timeoutMs: 10000
+```
+
+The Guardian owns policy; the agent applies `allow`, validated `modify`, and
+`deny`. Both `ask` and `defer` immediately count as `deny`. Tool denials let the
+model try another permitted approach, while other denials and Guardian failures
+end the invocation. Set `safety.approval.mode: none` when ACS is enabled.
+
+The request remains `{ messages, context? }`. Each invocation has its own session,
+whose ID equals `x-request-id` for HTTP. ACS mode buffers answer text until it is
+checked, suppresses raw reasoning, and emits `acs_decision` audit metadata.
+Read the [ACS guide](acs.md) for configuration, signing vectors, payload mapping,
+compaction conventions, and the supported subset of ACS v0.1.
+
 ## HTTP API
 
 ### Endpoints
@@ -311,6 +339,7 @@ in favor of the configured `systemPrompt`.
 
 | Event | Payload | Meaning |
 |-------|---------|---------|
+| `acs_decision` | `{ sessionId, requestId, method, decision, effectiveDecision, chainHash }` | ACS enforcement metadata, when enabled. |
 | `reasoning` | `{ text }` | A chunk of the model's reasoning. |
 | `content_delta` | `{ text }` | A chunk of the answer text. |
 | `tool_call` | `{ id, name, args }` | The model invoked a tool. |
@@ -322,7 +351,9 @@ in favor of the configured `systemPrompt`.
 | `error` | `{ code, message, details? }` | The run ended with an error. |
 
 Parallel tool calls within a single step are supported and stream concurrently.
-Closing the connection cancels the run.
+Closing the connection cancels the run. In ACS mode, tool events follow Guardian
+checks, `reasoning` is suppressed, and text mode emits one approved
+`content_delta` before `final`. Guardian failures never release unreviewed content.
 
 The loop is capped at `agent.maxSteps`. On the final step the agent forces a text
 answer instead of another tool call; if the model tries to call a tool anyway,
@@ -341,7 +372,7 @@ The `output` of every `tool_result` has this shape:
   args: unknown,           // the input the tool was called with
   duration_ms: number,
   truncated?: boolean,     // true when content was summarized
-  // only 'user_denied' is currently produced; the other values are reserved
+  // ACS uses 'policy_deny'; local human approval uses 'user_denied'
   denied_reason?: 'policy_deny' | 'user_denied' | 'policy_compound',
 }
 ```
@@ -424,6 +455,10 @@ model:
 Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 
 ## Observability
+
+ACS mode disables AI SDK telemetry to prevent raw content and exception messages
+from leaving before review. Invocation spans and ACS decision logs remain
+available. See [ACS events and telemetry](acs.md#client-events-and-telemetry).
 
 - **Logs** — structured JSON via [pino](https://getpino.io), written to stderr.
   Set the level with `LOG_LEVEL`. Every line carries `service.name` /
