@@ -6,6 +6,10 @@ configSchema:
   systemPrompt:
     type: string
     description: "System prompt for the agent. Supports Handlebars variables: {{now}}, {{today}}, {{cwd}}, {{config.field}} from promptVars, and {{request.field}} from request context. Missing referenced values fail the run."
+  promptVars:
+    type: object
+    required: false
+    description: "Variables available as {{config.field}} in the system prompt. Supports nested objects."
   model:
     type: object
     description: "LLM model configuration"

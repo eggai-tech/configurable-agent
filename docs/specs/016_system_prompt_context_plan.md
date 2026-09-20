@@ -1,6 +1,6 @@
 # 016 — Request system prompt context (plan)
 
-- Keep the existing Handlebars renderer. Accept an optional object named
+- Use Handlebars templates. Accept an optional object named
   `context` alongside `messages` in HTTP and CLI input.
 - Carry the object through `runAgent` options and expose it to templates as
   `{{request.field}}`, including nested objects. Expose YAML `promptVars` under

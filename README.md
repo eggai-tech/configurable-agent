@@ -25,6 +25,11 @@ curl -N -X POST http://localhost:3000/invoke \
   -d '{"messages":[{"role":"user","content":"search the web for eggai and summarize"}]}'
 ```
 
+Requests accept an optional `context` object for the system prompt. Handlebars
+templates access YAML `promptVars` as `{{config.team}}` and request `context`
+as `{{request.weather}}`. See [Prompt templating](docs/user-guide.md#prompt-templating)
+for a complete example.
+
 ## Documentation
 
 The full **[User Guide](docs/user-guide.md)** covers:

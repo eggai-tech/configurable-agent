@@ -126,49 +126,52 @@ tip.
 
 ### Prompt templating
 
-`systemPrompt` is a [Handlebars](https://handlebarsjs.com) template. These
-variables are always available:
+`systemPrompt` is a [Handlebars](https://handlebarsjs.com) template with the
+following values:
 
-- `{{today}}` — current date (`YYYY-MM-DD`)
-- `{{now}}` — current timestamp (ISO 8601)
-- `{{cwd}}` — the process working directory
+| Template expression | Source |
+|---------------------|--------|
+| `{{config.team}}` | `promptVars.team` in the YAML config. |
+| `{{request.weather}}` | `context.weather` in the request body. |
+| `{{today}}` | Current date (`YYYY-MM-DD`). |
+| `{{now}}` | Current timestamp (ISO 8601). |
+| `{{cwd}}` | The process working directory. |
 
-Add your own values under `promptVars` and reference them with the `config.` prefix:
-
-```yaml
-systemPrompt: |
-  You are the {{config.team}} assistant. Today is {{today}}.
-promptVars:
-  team: Platform
-```
-
-For values that vary per request, send an optional `context` object and reference
-its fields with the `request.` prefix in the template:
+For example, configure a prompt and its variables in YAML:
 
 ```yaml
 systemPrompt: |
-  You are the {{config.team}} assistant for {{request.tenant.name}}.
+  You are the {{config.team}} assistant. The weather is {{request.weather}}.
 promptVars:
-  team: Platform
+  team: foobar
 ```
+
+Send the request context alongside the conversation:
 
 ```json
 {
-  "messages": [{ "role": "user", "content": "Summarize outstanding invoices." }],
-  "context": { "tenant": { "name": "Acme" } }
+  "messages": [{ "role": "user", "content": "Help me plan the day." }],
+  "context": { "weather": "sunny" }
 }
 ```
 
-`config` contains only the YAML `promptVars`; `request` contains only the input
-`context`. These values are not exposed at the top level and cannot override
-built-in variables. Request context is available only for that invocation;
-resend it on follow-up requests and tool approval resumes. HTTP `/invoke` and
-CLI stdin accept the same input.
+The rendered system prompt is:
+
+```text
+You are the foobar assistant. The weather is sunny.
+```
+
+`config` contains the YAML `promptVars`; `request` contains the input `context`.
+Both support nested data, such as `{{config.team.name}}` or
+`{{request.tenant.name}}`. Omitting either object supplies an empty namespace.
+The built-in date, timestamp, and working directory are always available.
+Request context applies to one invocation; resend it on follow-up requests and
+tool approval resumes. HTTP `/invoke` and CLI stdin accept the same input.
 
 Templates render in strict Handlebars mode: referencing a missing variable,
 including a missing context field, fails before the model is called. Over HTTP,
-the response is an SSE stream with an `error` event whose code is
-`invalid_prompt_context`, and no `final` event. The CLI returns a run record with
+the response has HTTP status 200 and is an SSE stream with an `error` event whose
+code is `invalid_prompt_context`, and no `final` event. The CLI returns a run record with
 `ok: false` and an error message. Use a conditional for optional data, for example
 `{{#if request.locale}}{{request.locale}}{{else}}en{{/if}}`.
 Template syntax is checked at startup; variable availability is checked when
@@ -282,13 +285,19 @@ run — see [Resolving a tool approval](#resolving-a-tool-approval).
 ### Request format
 
 ```json
-{ "messages": [{ "role": "user", "content": "..." }] }
+{
+  "messages": [{ "role": "user", "content": "Help me plan the day." }],
+  "context": { "weather": "sunny" }
+}
 ```
 
-`messages` is required and must be nonempty. The only additional top-level
-field is `context`, an optional object for [prompt
-templating](#prompt-templating). Omitting it supplies an empty context. Other
-top-level fields and non-object context values are rejected with HTTP 400.
+| Field | Required | Description |
+|-------|----------|-------------|
+| `messages` | Yes | Nonempty array containing the conversation so far. |
+| `context` | No | Object exposed as `request` in the [system prompt template](#prompt-templating). |
+
+Omitting `context` supplies an empty `request` namespace. Unknown top-level
+fields and non-object context values, including `null`, are rejected with HTTP 400.
 
 `messages` is the conversation so far. Roles are `user`, `assistant`, and `tool`
 (the last is used only to return a [tool approval

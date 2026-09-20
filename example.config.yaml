@@ -8,12 +8,13 @@ systemPrompt: |
 #   {{now}}    — ISO datetime at invocation
 #   {{today}}  — YYYY-MM-DD at invocation
 #   {{cwd}}    — process working directory
-# Configured data: {{config.teamName}} from promptVars below.
-# Per-request data: {{request.tenant.name}} from the optional
-# context input object. Missing referenced values fail the run;
+# Configured data: {{config.team}} from promptVars below.
+# Per-request data: {{request.weather}} from a request such as
+# {"messages":[{"role":"user","content":"Hello"}],"context":{"weather":"sunny"}}
+# Missing referenced values fail the run;
 # use {{#if request.locale}}...{{else}}...{{/if}} for optional data.
 # promptVars:
-#   teamName: Platform
+#   team: foobar
 
 model:
   provider: anthropic
