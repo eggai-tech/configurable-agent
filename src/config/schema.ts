@@ -31,12 +31,24 @@ const McpServerSchema = z.discriminatedUnion('transport', [
   McpHttpServerSchema,
 ]);
 
+export const AcsConfigSchema = z.strictObject({
+  guardianUrl: z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
+    message: 'acs.guardianUrl must use HTTP or HTTPS',
+  }),
+  agentId: z.string().min(1),
+  keyId: z.string().min(1),
+  secretEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+  timeoutMs: z.number().int().positive().max(300_000).default(10_000),
+});
+export type AcsConfig = z.infer<typeof AcsConfigSchema>;
+
 export type McpServerConfig = z.infer<typeof McpServerSchema>;
 
 export const AgentConfigSchema = z
   .object({
     systemPrompt: z.string().min(1, 'systemPrompt must not be empty'),
     promptVars: z.record(z.string(), z.unknown()).optional(),
+    acs: AcsConfigSchema.optional(),
     model: z.strictObject({
       provider: ModelProvider,
       name: z.string().min(1, 'model.name must not be empty'),
@@ -135,6 +147,10 @@ export const AgentConfigSchema = z
       })
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine((config) => !config.acs || config.safety.approval.mode === 'none', {
+    message: 'ACS requires safety.approval.mode: none',
+    path: ['safety', 'approval', 'mode'],
+  });
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;

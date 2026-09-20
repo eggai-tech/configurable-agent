@@ -1,0 +1,1266 @@
+[
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/request-envelope.json",
+    "type": "object",
+    "required": ["jsonrpc", "method", "id", "params"],
+    "additionalProperties": false,
+    "properties": {
+      "jsonrpc": {
+        "const": "2.0"
+      },
+      "method": {
+        "type": "string",
+        "pattern": "^(steps/|protocols/|agbom/|trace/|system/|handshake/|wrapped:).+"
+      },
+      "id": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "params": {
+        "$ref": "#/$defs/AcsParams"
+      }
+    },
+    "$defs": {
+      "AcsParams": {
+        "type": "object",
+        "required": ["acs_version", "request_id", "timestamp", "metadata", "payload"],
+        "properties": {
+          "acs_version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nonce": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 64
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/$defs/Metadata"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "signature": {
+            "$ref": "#/$defs/Signature"
+          }
+        }
+      },
+      "Metadata": {
+        "type": "object",
+        "required": ["agent_id", "session_id"],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn_id": {
+            "type": "string"
+          },
+          "parent_turn_id": {
+            "type": "string"
+          },
+          "session_state": {
+            "type": "object",
+            "properties": {
+              "chain_hash": {
+                "type": "string"
+              }
+            }
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["development", "staging", "production"]
+          },
+          "platform": {
+            "type": "string"
+          },
+          "platform_version": {
+            "type": "string"
+          },
+          "user_context": {
+            "type": "object",
+            "properties": {
+              "user_id": {
+                "type": "string"
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "authentication_method": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "Signature": {
+        "type": "object",
+        "required": ["algorithm", "value", "key_id"],
+        "properties": {
+          "algorithm": {
+            "type": "string",
+            "enum": [
+              "HMAC-SHA256",
+              "ECDSA-P256",
+              "RSA-PSS-SHA256",
+              "ML-DSA-65",
+              "ML-DSA-44",
+              "ML-DSA-87",
+              "SLH-DSA-128s",
+              "SLH-DSA-128f",
+              "ML-DSA-65+ECDSA-P256",
+              "ML-DSA-65+RSA-PSS-SHA256"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/response-envelope.json",
+    "type": "object",
+    "required": ["jsonrpc", "id"],
+    "additionalProperties": false,
+    "properties": {
+      "jsonrpc": {
+        "const": "2.0"
+      },
+      "id": {
+        "type": ["string", "number", "null"]
+      },
+      "result": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AcsResult"
+          },
+          {
+            "$ref": "handshake.json#/$defs/ServerHello"
+          }
+        ]
+      },
+      "error": {
+        "$ref": "#/$defs/JsonRpcError"
+      }
+    },
+    "oneOf": [
+      {
+        "required": ["result"],
+        "not": {
+          "required": ["error"]
+        },
+        "properties": {
+          "id": {
+            "type": ["string", "number"]
+          }
+        }
+      },
+      {
+        "required": ["error"],
+        "not": {
+          "required": ["result"]
+        }
+      }
+    ],
+    "$defs": {
+      "AcsResult": {
+        "type": "object",
+        "required": ["type", "acs_version", "request_id", "decision"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "final"
+          },
+          "acs_version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["allow", "deny", "modify", "ask", "defer"]
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "reason_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "policy_references": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "policy_id": {
+                  "type": "string"
+                },
+                "policy_version": {
+                  "type": "string"
+                },
+                "policy_name": {
+                  "type": "string"
+                },
+                "rule_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "policy_data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "cited_provenance_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "modifications": {
+            "$ref": "modifications.json"
+          },
+          "ask_details": {
+            "$ref": "ask-details.json"
+          },
+          "defer_details": {
+            "$ref": "defer-details.json"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "chain_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "signature": {
+            "$ref": "request-envelope.json#/$defs/Signature"
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "evaluator": {
+                "type": "string",
+                "enum": ["deterministic", "agent", "composite"]
+              },
+              "evaluator_version": {
+                "type": "string"
+              },
+              "evaluation_duration_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "deny"
+                }
+              },
+              "required": ["decision"]
+            },
+            "then": {
+              "required": ["reasoning"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "modify"
+                }
+              },
+              "required": ["decision"]
+            },
+            "then": {
+              "required": ["reasoning", "modifications"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "ask"
+                }
+              },
+              "required": ["decision"]
+            },
+            "then": {
+              "required": ["reasoning", "ask_details"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision": {
+                  "const": "defer"
+                }
+              },
+              "required": ["decision"]
+            },
+            "then": {
+              "required": ["reasoning", "defer_details"]
+            }
+          }
+        ]
+      },
+      "JsonRpcError": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/handshake.json",
+    "type": "object",
+    "$defs": {
+      "ClientHello": {
+        "type": "object",
+        "required": [
+          "acs_versions_supported",
+          "methods_implemented",
+          "transports_supported",
+          "provenance_producer"
+        ],
+        "properties": {
+          "acs_versions_supported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "minItems": 1
+          },
+          "methods_implemented": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(steps/|protocols/|agbom/|trace/|system/|handshake/|wrapped:).+"
+            }
+          },
+          "transports_supported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["http", "https", "stdio"]
+            },
+            "minItems": 1
+          },
+          "max_payload_size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "provenance_producer": {
+            "type": "string",
+            "enum": ["deterministic", "none"]
+          },
+          "wrapped_protocols": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["protocol", "version"],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "enum": ["MCP", "A2A"]
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "profiles_supported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "acs-core",
+                "acs-trace",
+                "acs-inspect",
+                "acs-inspect-dynamic",
+                "acs-provenance",
+                "acs-crypto",
+                "acs-audit"
+              ]
+            }
+          }
+        }
+      },
+      "ServerHello": {
+        "type": "object",
+        "required": [
+          "negotiated_version",
+          "methods_evaluated",
+          "selected_transport",
+          "timeout_config"
+        ],
+        "properties": {
+          "negotiated_version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "methods_evaluated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "selected_transport": {
+            "type": "string",
+            "enum": ["http", "https", "stdio"]
+          },
+          "signature_algorithms_supported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "HMAC-SHA256",
+                "ECDSA-P256",
+                "RSA-PSS-SHA256",
+                "ML-DSA-65",
+                "ML-DSA-44",
+                "ML-DSA-87",
+                "SLH-DSA-128s",
+                "SLH-DSA-128f",
+                "ML-DSA-65+ECDSA-P256",
+                "ML-DSA-65+RSA-PSS-SHA256"
+              ]
+            }
+          },
+          "timeout_config": {
+            "type": "object",
+            "required": ["default_ms"],
+            "properties": {
+              "default_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "per_method_ms": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "skew_window_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 300000
+          },
+          "on_decision_failure": {
+            "type": "string",
+            "enum": ["proceed", "deny"],
+            "default": "proceed"
+          },
+          "approver_types_supported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["human", "agent", "service"]
+            }
+          },
+          "policy_requires_provenance": {
+            "type": "boolean"
+          },
+          "agbom_serializations_supported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["canonical", "cyclonedx-1.6", "spdx-3.0", "swid"]
+            }
+          },
+          "trace_emission": {
+            "type": "object",
+            "properties": {
+              "otel_enabled": {
+                "type": "boolean"
+              },
+              "ocsf_enabled": {
+                "type": "boolean"
+              },
+              "otel_collector_endpoint": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          },
+          "profiles_accepted": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "acs-core",
+                "acs-trace",
+                "acs-inspect",
+                "acs-inspect-dynamic",
+                "acs-provenance",
+                "acs-crypto",
+                "acs-audit"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/modifications.json",
+    "type": "object",
+    "properties": {
+      "modified_content": {
+        "type": "string"
+      },
+      "redactions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "replacement": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "parameter_overrides": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "oneOf": [
+      {
+        "required": ["modified_content"],
+        "not": {
+          "anyOf": [
+            {
+              "required": ["redactions"]
+            },
+            {
+              "required": ["parameter_overrides"]
+            }
+          ]
+        }
+      },
+      {
+        "not": {
+          "required": ["modified_content"]
+        },
+        "anyOf": [
+          {
+            "required": ["redactions"]
+          },
+          {
+            "required": ["parameter_overrides"]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/ask-details.json",
+    "type": "object",
+    "required": ["approver", "question", "timeout_seconds"],
+    "properties": {
+      "approver": {
+        "type": "object",
+        "required": ["type", "id"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["human", "agent", "service"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "auth": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": ["bearer", "mtls"]
+              }
+            }
+          }
+        }
+      },
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "options": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "timeout_seconds": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "timeout_disposition": {
+        "type": "string",
+        "enum": ["allow", "deny"],
+        "default": "deny"
+      },
+      "intent_extension": {
+        "type": "object",
+        "required": ["capabilities", "scope"],
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "operation": {
+                  "type": "string"
+                },
+                "resource": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["this_request", "session"]
+          },
+          "provenance": {
+            "$ref": "provenance.json"
+          }
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/provenance.json",
+    "type": "object",
+    "required": ["provenance_id", "origin"],
+    "properties": {
+      "provenance_id": {
+        "type": "string"
+      },
+      "origin": {
+        "type": "string",
+        "enum": [
+          "user_input",
+          "system",
+          "tool_output",
+          "retrieved",
+          "agent_generated",
+          "a2a_inbound",
+          "external"
+        ]
+      },
+      "source_id": {
+        "type": "string"
+      },
+      "derived_from": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/defer-details.json",
+    "type": "object",
+    "required": ["reason", "resolution_method", "resolution_timeout_ms"],
+    "properties": {
+      "reason": {
+        "type": "string",
+        "enum": [
+          "insufficient_context",
+          "conflicting_policies",
+          "low_confidence",
+          "pending_dependency"
+        ]
+      },
+      "resolution_method": {
+        "type": "string",
+        "enum": ["additional_context", "human_approval", "timeout"]
+      },
+      "resolution_timeout_ms": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "timeout_decision": {
+        "type": "string",
+        "enum": ["deny", "ask"],
+        "default": "deny"
+      },
+      "required_context": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/session-start.json",
+    "type": "object",
+    "properties": {
+      "user_identity": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authentication_method": {
+            "type": "string"
+          }
+        }
+      },
+      "policy_mode": {
+        "type": "string",
+        "enum": ["strict", "moderate", "permissive"]
+      },
+      "intent": {
+        "type": "object",
+        "properties": {
+          "raw": {
+            "type": "string"
+          },
+          "parsed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "operation": {
+                  "type": "string"
+                },
+                "resource": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "parser_provenance": {
+            "$ref": "../provenance.json"
+          },
+          "scope_mode": {
+            "type": "string",
+            "enum": ["strict", "moderate", "permissive"]
+          }
+        },
+        "if": {
+          "required": ["parsed"]
+        },
+        "then": {
+          "required": ["parser_provenance"]
+        }
+      },
+      "platform_context": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/session-end.json",
+    "type": "object",
+    "required": ["reason"],
+    "properties": {
+      "reason": {
+        "type": "string",
+        "enum": ["completed", "cancelled", "error", "timeout", "abandoned"]
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "step_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "final_chain_hash": {
+        "type": "string"
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/turn-start.json",
+    "type": "object",
+    "required": ["turn_id", "triggered_by"],
+    "properties": {
+      "turn_id": {
+        "type": "string"
+      },
+      "triggered_by": {
+        "type": "string",
+        "enum": [
+          "user_message",
+          "auto_continuation",
+          "agent_loop",
+          "subagent_return",
+          "scheduled",
+          "external_event"
+        ]
+      },
+      "parent_turn_id": {
+        "type": "string"
+      },
+      "expected_inputs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/turn-end.json",
+    "type": "object",
+    "required": ["turn_id", "outcome"],
+    "properties": {
+      "turn_id": {
+        "type": "string"
+      },
+      "outcome": {
+        "type": "string",
+        "enum": ["completed", "deferred", "error", "interrupted", "denied_at_start"]
+      },
+      "step_count": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "../provenance.json"
+          }
+        },
+        "required": ["value", "provenance"]
+      },
+      "tool_call_count": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/agent-trigger.json",
+    "type": "object",
+    "required": ["trigger_type"],
+    "properties": {
+      "trigger_type": {
+        "type": "string",
+        "enum": ["user_message", "scheduled", "external_event", "a2a_inbound", "system"]
+      },
+      "trigger_source": {
+        "type": "object"
+      },
+      "intent": {
+        "type": "object",
+        "properties": {
+          "raw": {
+            "type": "string"
+          },
+          "parsed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "operation": {
+                  "type": "string"
+                },
+                "resource": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "parser_provenance": {
+            "$ref": "../provenance.json"
+          },
+          "scope_mode": {
+            "type": "string",
+            "enum": ["strict", "moderate", "permissive"]
+          }
+        },
+        "if": {
+          "required": ["parsed"]
+        },
+        "then": {
+          "required": ["parser_provenance"]
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/tool-call-request.json",
+    "type": "object",
+    "required": ["tool", "arguments"],
+    "properties": {
+      "tool": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "operation": {
+        "type": "string"
+      },
+      "capability": {
+        "type": "string"
+      },
+      "arguments": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["value"],
+          "properties": {
+            "value": {},
+            "provenance": {
+              "$ref": "../provenance.json"
+            }
+          }
+        }
+      },
+      "raw_command": {
+        "type": "string"
+      },
+      "intent": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/tool-call-result.json",
+    "type": "object",
+    "required": ["tool", "exit_status", "outputs"],
+    "properties": {
+      "tool": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "operation": {
+        "type": "string"
+      },
+      "request_id_ref": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "exit_status": {
+        "type": "string",
+        "enum": ["success", "failure", "timeout", "blocked"]
+      },
+      "outputs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["value"],
+          "properties": {
+            "value": {},
+            "provenance": {
+              "$ref": "../provenance.json"
+            }
+          }
+        }
+      },
+      "duration_ms": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/agent-response.json",
+    "type": "object",
+    "required": ["content"],
+    "properties": {
+      "content": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["type", "value"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["text", "image", "audio", "file"]
+            },
+            "value": {},
+            "provenance": {
+              "$ref": "../provenance.json"
+            }
+          }
+        }
+      },
+      "reasoning": {
+        "type": "string"
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/pre-compact.json",
+    "type": "object",
+    "required": ["entries_to_compact", "triggered_by"],
+    "properties": {
+      "entries_to_compact": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string"
+        }
+      },
+      "pre_compact_provenance_summary": {
+        "$ref": "../provenance-summary.json"
+      },
+      "triggered_by": {
+        "type": "string",
+        "enum": ["size_threshold", "manual", "agent_initiated", "framework_initiated"]
+      },
+      "estimated_input_tokens": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "target_summary_tokens": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/provenance-summary.json",
+    "type": "object",
+    "properties": {
+      "origins_seen": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "enum": [
+            "user_input",
+            "system",
+            "tool_output",
+            "retrieved",
+            "agent_generated",
+            "a2a_inbound",
+            "external"
+          ]
+        }
+      },
+      "entry_count": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "entry_count_by_origin": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "earliest_step_id_by_origin": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "max_lineage_depth": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/post-compact.json",
+    "type": "object",
+    "required": [
+      "summary",
+      "entries_compacted",
+      "pre_compact_chain_hash",
+      "post_compact_chain_hash"
+    ],
+    "properties": {
+      "summary": {
+        "type": "object",
+        "required": ["value", "provenance"],
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "../provenance.json"
+          }
+        }
+      },
+      "entries_compacted": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string"
+        }
+      },
+      "pre_compact_chain_hash": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "post_compact_chain_hash": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "lineage_depth_after": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  },
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://genai-security-project.github.io/agent-control-standard/schema/v0.1.0/hooks/system-ping.json",
+    "type": "object",
+    "properties": {
+      "echo": {
+        "type": "string",
+        "maxLength": 256
+      }
+    }
+  }
+]

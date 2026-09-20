@@ -1,0 +1,59 @@
+{
+  "secret": "acs-interoperability-test-secret",
+  "sessionId": "12345678-1234-4234-8234-123456789abc",
+  "keyId": "test-vector-key",
+  "derivedKeyHex": "c4113365227df3d63be83e0b71f8a68255652b9dd185544fb5c6ceac0bffe597",
+  "vectors": [
+    {
+      "envelope": {
+        "jsonrpc": "2.0",
+        "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "method": "steps/toolCallRequest",
+        "params": {
+          "acs_version": "0.1.0",
+          "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "timestamp": "2026-09-20T12:00:00.000Z",
+          "metadata": {
+            "agent_id": "example",
+            "session_id": "12345678-1234-4234-8234-123456789abc"
+          },
+          "payload": {
+            "tool": {
+              "name": "lookup"
+            },
+            "arguments": {
+              "query": {
+                "value": "sunny"
+              }
+            }
+          }
+        }
+      },
+      "canonical": "{\"id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"jsonrpc\":\"2.0\",\"method\":\"steps/toolCallRequest\",\"params\":{\"acs_version\":\"0.1.0\",\"metadata\":{\"agent_id\":\"example\",\"session_id\":\"12345678-1234-4234-8234-123456789abc\"},\"payload\":{\"arguments\":{\"query\":{\"value\":\"sunny\"}},\"tool\":{\"name\":\"lookup\"}},\"request_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"timestamp\":\"2026-09-20T12:00:00.000Z\"}}",
+      "signature": {
+        "algorithm": "HMAC-SHA256",
+        "key_id": "test-vector-key",
+        "value": "J7t3dN4RoP9yQdWMr79xnSoA/4BI6hZLlQaGQeulATw="
+      }
+    },
+    {
+      "envelope": {
+        "jsonrpc": "2.0",
+        "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "result": {
+          "type": "final",
+          "acs_version": "0.1.0",
+          "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "decision": "allow",
+          "chain_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "canonical": "{\"id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"jsonrpc\":\"2.0\",\"result\":{\"acs_version\":\"0.1.0\",\"chain_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"decision\":\"allow\",\"request_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"type\":\"final\"}}",
+      "signature": {
+        "algorithm": "HMAC-SHA256",
+        "key_id": "test-vector-key",
+        "value": "VBiM6DCdiRdgMLtV+rYi4ag0sqMlzO+mDGjpw8pTPiw="
+      }
+    }
+  ]
+}
