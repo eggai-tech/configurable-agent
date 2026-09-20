@@ -130,14 +130,14 @@ describe('configurable-agent run CLI', () => {
     expect(rec).toEqual({ ok: true, finalText: 'hello', error: null });
   });
 
-  it('passes stdin system_prompt_context into the configured system prompt', async () => {
+  it('passes stdin context into the configured system prompt', async () => {
     const model = mockModel([textStream('hello')]);
     const r = await invoke({
       dir,
-      configYaml: BASE_YAML.replace('SYSTEM', 'Hello {{system_prompt_context.user.name}}'),
+      configYaml: BASE_YAML.replace('SYSTEM', 'Hello {{context.user.name}}'),
       stdinBody: JSON.stringify({
         messages: [{ role: 'user', content: 'hi' }],
-        system_prompt_context: { user: { name: 'Nicolas' } },
+        context: { user: { name: 'Nicolas' } },
       }),
       modelOverride: model,
     });

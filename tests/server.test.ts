@@ -181,7 +181,7 @@ describe('POST /invoke — system prompt context', () => {
     writeFileSync(
       path,
       `systemPrompt: >-
-  You are the {{team}} assistant for {{system_prompt_context.tenant.name}}. Today is {{today}}.
+  You are the {{team}} assistant for {{context.tenant.name}}. Today is {{today}}.
 promptVars:
   team: Platform
 model:
@@ -208,7 +208,7 @@ model:
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             messages: [{ role: 'user', content: 'hi' }],
-            system_prompt_context: {
+            context: {
               tenant: { name },
               team: 'Request data must stay in its namespace',
               today: 'Request data must not override built-ins',
@@ -245,7 +245,7 @@ model:
     undefined,
     {},
     { tenant: {} },
-  ])('emits an error without calling the model when required context is missing: %j', async (systemPromptContext) => {
+  ])('emits an error without calling the model when required context is missing: %j', async (context) => {
     const model = textModel('must not run');
     const app = buildServer(config, { tools: {}, model });
     const res = await app.request('/invoke', {
@@ -253,7 +253,7 @@ model:
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         messages: [{ role: 'user', content: 'hi' }],
-        system_prompt_context: systemPromptContext,
+        context,
       }),
     });
 

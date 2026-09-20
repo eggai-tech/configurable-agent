@@ -156,7 +156,7 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
           await runAgent(config, incoming, emit, abortController.signal, {
             tools,
             model,
-            systemPromptContext: parsed.system_prompt_context,
+            context: parsed.context,
           });
           logger.info({ requestId, durationMs: Date.now() - startedAt }, 'invoke finished');
         } catch (err) {

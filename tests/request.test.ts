@@ -22,10 +22,10 @@ describe('parseInvokeRequest', () => {
     expect(result.success).toBe(true);
   });
 
-  it.each([null, 'text', [], 42])('rejects a non-object system_prompt_context: %j', (context) => {
+  it.each([null, 'text', [], 42])('rejects a non-object context: %j', (context) => {
     const result = parseInvokeRequest({
       messages: [{ role: 'user', content: 'hi' }],
-      system_prompt_context: context,
+      context,
     });
     expect(result.success).toBe(false);
   });

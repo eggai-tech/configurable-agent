@@ -142,12 +142,12 @@ promptVars:
   team: Platform
 ```
 
-For values that vary per request, send an optional `system_prompt_context`
+For values that vary per request, send an optional `context`
 object and reference it by name in the template:
 
 ```yaml
 systemPrompt: |
-  You are the {{team}} assistant for {{system_prompt_context.tenant.name}}.
+  You are the {{team}} assistant for {{context.tenant.name}}.
 promptVars:
   team: Platform
 ```
@@ -155,7 +155,7 @@ promptVars:
 ```json
 {
   "messages": [{ "role": "user", "content": "Summarize outstanding invoices." }],
-  "system_prompt_context": { "tenant": { "name": "Acme" } }
+  "context": { "tenant": { "name": "Acme" } }
 }
 ```
 
@@ -168,7 +168,7 @@ including a missing context field, fails before the model is called. Over HTTP,
 the response is an SSE stream with an `error` event whose code is
 `invalid_prompt_context`, and no `final` event. The CLI returns a run record with
 `ok: false` and an error message. Use a conditional for optional data, for example
-`{{#if system_prompt_context.locale}}{{system_prompt_context.locale}}{{else}}en{{/if}}`.
+`{{#if context.locale}}{{context.locale}}{{else}}en{{/if}}`.
 Template syntax is checked at startup; variable availability is checked when
 each request is rendered.
 
@@ -284,7 +284,7 @@ run — see [Resolving a tool approval](#resolving-a-tool-approval).
 ```
 
 `messages` is required and must be nonempty. The only additional top-level
-field is `system_prompt_context`, an optional object for [prompt
+field is `context`, an optional object for [prompt
 templating](#prompt-templating). Omitting it supplies an empty context. Other
 top-level fields and non-object context values are rejected with HTTP 400.
 
@@ -346,7 +346,7 @@ When approval is enabled and the model calls a gated tool, the run pauses:
 2. Get a decision from a human, then send a new `/invoke` request with the
    **same messages**, followed by the `messages` from the `run_paused` event
    verbatim, followed by a `tool` message carrying the decision. Include the
-   original `system_prompt_context` again if one was supplied:
+   original `context` again if one was supplied:
 
    ```jsonc
    {

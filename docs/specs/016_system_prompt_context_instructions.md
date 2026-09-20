@@ -9,3 +9,5 @@ tries to access context info that is not present.
 
 Make sure these changes are in a branch, then committed and pushed to origin.
 The branch should be `nicolas/required-improvements-for-control-plane`.
+
+Follow-up: Let's rename `system_prompt_context` to only `context`.

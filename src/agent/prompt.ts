@@ -7,7 +7,7 @@ const compiled = new Map<string, HandlebarsTemplateDelegate>();
 
 export function renderSystemPrompt(
   config: AgentConfig,
-  systemPromptContext: Record<string, unknown> = {},
+  context: Record<string, unknown> = {},
 ): string {
   let template = compiled.get(config.systemPrompt);
   if (!template) {
@@ -23,6 +23,6 @@ export function renderSystemPrompt(
   return template({
     ...builtins,
     ...(config.promptVars ?? {}),
-    system_prompt_context: systemPromptContext,
+    context,
   });
 }
