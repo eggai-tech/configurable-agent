@@ -22,6 +22,14 @@ describe('parseInvokeRequest', () => {
     expect(result.success).toBe(true);
   });
 
+  it.each([null, 'text', [], 42])('rejects a non-object system_prompt_context: %j', (context) => {
+    const result = parseInvokeRequest({
+      messages: [{ role: 'user', content: 'hi' }],
+      system_prompt_context: context,
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('preserves the tool-approval-request signature the SDK schema would strip', () => {
     // A signed approval round-trip: the client re-POSTs the assistant message
     // containing the approval request WITH its HMAC signature. zod parsing

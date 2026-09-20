@@ -10,13 +10,14 @@ export const InvokeRequestSchema = z
     messages: z
       .array(modelMessageSchema, { error: 'messages must be an array of model messages' })
       .min(1, 'messages must contain at least one message'),
+    system_prompt_context: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
 export type InvokeRequest = z.infer<typeof InvokeRequestSchema>;
 
 export type ParsedInvokeRequest =
-  | { success: true; messages: ModelMessage[] }
+  | { success: true; messages: ModelMessage[]; system_prompt_context?: Record<string, unknown> }
   | { success: false; error: z.ZodError };
 
 /**
@@ -31,5 +32,9 @@ export function parseInvokeRequest(body: unknown): ParsedInvokeRequest {
   if (!parsed.success) {
     return { success: false, error: parsed.error };
   }
-  return { success: true, messages: (body as { messages: ModelMessage[] }).messages };
+  return {
+    success: true,
+    messages: (body as { messages: ModelMessage[] }).messages,
+    system_prompt_context: parsed.data.system_prompt_context,
+  };
 }

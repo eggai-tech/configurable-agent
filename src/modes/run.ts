@@ -75,7 +75,13 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
   const parentSpanCtx = parseTraceparent(opts.env.TRACEPARENT);
 
   try {
-    const record = await executeRun(config, validated.messages, opts.modelOverride, parentSpanCtx);
+    const record = await executeRun(
+      config,
+      validated.messages,
+      opts.modelOverride,
+      parentSpanCtx,
+      validated.system_prompt_context,
+    );
     await writeRunRecord(opts.stdout, record);
     return 0;
   } catch (err) {
@@ -97,6 +103,7 @@ async function executeRun(
   messages: ModelMessage[],
   modelOverride: LanguageModel | undefined,
   parentSpanCtx: SpanContext | null,
+  systemPromptContext?: Record<string, unknown>,
 ): Promise<RunRecord> {
   const collector = new EventCollector();
 
@@ -108,6 +115,7 @@ async function executeRun(
     runAgent(config, messages, (e) => collector.collect(e), undefined, {
       model: modelOverride,
       tools: registry.tools,
+      systemPromptContext,
     });
 
   const tracer = trace.getTracer('configurable-agent-cli');

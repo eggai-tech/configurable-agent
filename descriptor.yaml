@@ -5,7 +5,7 @@ image: ghcr.io/eggai-tech/configurable-agent:latest
 configSchema:
   systemPrompt:
     type: string
-    description: "System prompt for the agent. Supports Handlebars variables: {{now}}, {{today}}, {{cwd}}, plus any keys from promptVars."
+    description: "System prompt for the agent. Supports Handlebars variables: {{now}}, {{today}}, {{cwd}}, keys from promptVars, and per-request {{system_prompt_context.field}}. Missing referenced values fail the run."
   model:
     type: object
     description: "LLM model configuration"

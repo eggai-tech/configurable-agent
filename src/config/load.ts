@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { Ajv } from 'ajv';
 import ajvFormatsPkg from 'ajv-formats';
+import Handlebars from 'handlebars';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 
@@ -12,7 +13,6 @@ const addFormats = (
     : (ajvFormatsPkg as unknown as { default: (ajv: Ajv) => Ajv }).default
 ) as (ajv: Ajv) => Ajv;
 
-import { renderSystemPrompt } from '../agent/prompt.js';
 import { type AgentConfig, AgentConfigSchema } from './schema.js';
 
 export class ConfigError extends Error {
@@ -54,10 +54,9 @@ export function loadConfig(path: string): AgentConfig {
     validateJsonSchema(result.data.output.schema);
   }
 
-  // Render once at load: Handlebars parses lazily, so a template syntax error
-  // would otherwise surface on the first request instead of at startup.
+  // Validate syntax without rendering: request context is only available at invocation.
   try {
-    renderSystemPrompt(result.data);
+    Handlebars.precompile(result.data.systemPrompt, { noEscape: true, strict: true });
   } catch (err) {
     throw new ConfigError(
       `systemPrompt is not a valid Handlebars template: ${err instanceof Error ? err.message : String(err)}`,

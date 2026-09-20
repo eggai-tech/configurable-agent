@@ -26,6 +26,8 @@ export type { AgentEmitter, AgentEvent } from './events.js';
 
 export interface RunAgentOptions {
   model?: LanguageModel;
+  /** Request data exposed as `system_prompt_context` in the system prompt template. */
+  systemPromptContext?: Record<string, unknown>;
   /**
    * Pre-built, validated MCP tool map. When provided, the loop reuses it
    * instead of running discovery for the request — used by the HTTP server,
@@ -41,7 +43,17 @@ export async function runAgent(
   abortSignal?: AbortSignal,
   options: RunAgentOptions = {},
 ): Promise<void> {
-  const messages = prepareMessages(config, incoming);
+  let messages: ModelMessage[];
+  try {
+    messages = prepareMessages(config, incoming, options.systemPromptContext);
+  } catch (err) {
+    await emit({
+      type: 'error',
+      code: 'invalid_prompt_context',
+      message: `Failed to render system prompt: ${errorMessage(err)}`,
+    });
+    return;
+  }
   const model = options.model ?? buildModel(config.model);
   const maxSteps = config.agent.maxSteps;
 
@@ -282,9 +294,16 @@ export async function runAgent(
   }
 }
 
-export function prepareMessages(config: AgentConfig, incoming: ModelMessage[]): ModelMessage[] {
+export function prepareMessages(
+  config: AgentConfig,
+  incoming: ModelMessage[],
+  systemPromptContext?: Record<string, unknown>,
+): ModelMessage[] {
   const withoutSystem = incoming.filter((m) => m.role !== 'system');
-  return [{ role: 'system', content: renderSystemPrompt(config) }, ...withoutSystem];
+  return [
+    { role: 'system', content: renderSystemPrompt(config, systemPromptContext) },
+    ...withoutSystem,
+  ];
 }
 
 export interface StepDiagnosis {

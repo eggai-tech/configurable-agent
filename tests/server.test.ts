@@ -1,7 +1,11 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { convertArrayToReadableStream, MockLanguageModelV3 } from 'ai/test';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../src/api/server.js';
+import { loadConfig } from '../src/config/load.js';
 import type { AgentConfig } from '../src/config/schema.js';
 
 function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
@@ -164,5 +168,105 @@ describe('POST /invoke — streaming', () => {
       steps: 1,
       usage: { inputTokens: 5, outputTokens: 5 },
     });
+  });
+});
+
+describe('POST /invoke — system prompt context', () => {
+  let dir: string;
+  let config: AgentConfig;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'configurable-agent-context-'));
+    const path = join(dir, 'config.yaml');
+    writeFileSync(
+      path,
+      `systemPrompt: >-
+  You are the {{team}} assistant for {{system_prompt_context.tenant.name}}. Today is {{today}}.
+promptVars:
+  team: Platform
+model:
+  provider: anthropic
+  name: stub
+`,
+    );
+    config = loadConfig(path);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('renders each request context from YAML through to the model and streams a final response', async () => {
+    const model = textModel('hello');
+    const app = buildServer(config, { tools: {}, model });
+    const tenants = ['Acme & Sons', 'Other Tenant'];
+
+    await Promise.all(
+      tenants.map(async (name) => {
+        const res = await app.request('/invoke', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'hi' }],
+            system_prompt_context: {
+              tenant: { name },
+              team: 'Request data must stay in its namespace',
+              today: 'Request data must not override built-ins',
+            },
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        expect(parseSse(await res.text()).at(-1)).toMatchObject({
+          event: 'final',
+          data: { content: 'hello' },
+        });
+      }),
+    );
+
+    expect(model.doStreamCalls).toHaveLength(2);
+    const systemMessages = model.doStreamCalls.flatMap((call) =>
+      call.prompt.filter((message) => message.role === 'system'),
+    );
+    for (const name of tenants) {
+      expect(systemMessages).toContainEqual({
+        role: 'system',
+        content: expect.stringMatching(
+          new RegExp(
+            `^You are the Platform assistant for ${name}\\. Today is \\d{4}-\\d{2}-\\d{2}\\.$`,
+          ),
+        ),
+      });
+    }
+    expect(config.promptVars).toEqual({ team: 'Platform' });
+  });
+
+  it.each([
+    undefined,
+    {},
+    { tenant: {} },
+  ])('emits an error without calling the model when required context is missing: %j', async (systemPromptContext) => {
+    const model = textModel('must not run');
+    const app = buildServer(config, { tools: {}, model });
+    const res = await app.request('/invoke', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'hi' }],
+        system_prompt_context: systemPromptContext,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(parseSse(await res.text())).toEqual([
+      {
+        event: 'error',
+        data: {
+          code: 'invalid_prompt_context',
+          message: expect.stringMatching(/Failed to render system prompt:.*"name" not defined/),
+        },
+      },
+    ]);
+    expect(model.doStreamCalls).toHaveLength(0);
   });
 });

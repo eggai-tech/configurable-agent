@@ -142,6 +142,36 @@ promptVars:
   team: Platform
 ```
 
+For values that vary per request, send an optional `system_prompt_context`
+object and reference it by name in the template:
+
+```yaml
+systemPrompt: |
+  You are the {{team}} assistant for {{system_prompt_context.tenant.name}}.
+promptVars:
+  team: Platform
+```
+
+```json
+{
+  "messages": [{ "role": "user", "content": "Summarize outstanding invoices." }],
+  "system_prompt_context": { "tenant": { "name": "Acme" } }
+}
+```
+
+The context is available only for that invocation; it does not override
+`promptVars` or built-in variables. Resend it on follow-up requests and tool
+approval resumes. HTTP `/invoke` and CLI stdin accept the same input.
+
+Templates render in strict Handlebars mode: referencing a missing variable,
+including a missing context field, fails before the model is called. Over HTTP,
+the response is an SSE stream with an `error` event whose code is
+`invalid_prompt_context`, and no `final` event. The CLI returns a run record with
+`ok: false` and an error message. Use a conditional for optional data, for example
+`{{#if system_prompt_context.locale}}{{system_prompt_context.locale}}{{else}}en{{/if}}`.
+Template syntax is checked at startup; variable availability is checked when
+each request is rendered.
+
 ### Tools
 
 The model can call tools during a run. One tool is always available; the rest
@@ -253,6 +283,11 @@ run — see [Resolving a tool approval](#resolving-a-tool-approval).
 { "messages": [{ "role": "user", "content": "..." }] }
 ```
 
+`messages` is required and must be nonempty. The only additional top-level
+field is `system_prompt_context`, an optional object for [prompt
+templating](#prompt-templating). Omitting it supplies an empty context. Other
+top-level fields and non-object context values are rejected with HTTP 400.
+
 `messages` is the conversation so far. Roles are `user`, `assistant`, and `tool`
 (the last is used only to return a [tool approval
 decision](#resolving-a-tool-approval)). Any `system` message you send is ignored
@@ -310,7 +345,8 @@ When approval is enabled and the model calls a gated tool, the run pauses:
    and the response ends. The tool has **not** run.
 2. Get a decision from a human, then send a new `/invoke` request with the
    **same messages**, followed by the `messages` from the `run_paused` event
-   verbatim, followed by a `tool` message carrying the decision:
+   verbatim, followed by a `tool` message carrying the decision. Include the
+   original `system_prompt_context` again if one was supplied:
 
    ```jsonc
    {
