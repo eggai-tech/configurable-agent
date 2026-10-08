@@ -111,6 +111,8 @@ export async function runAgent(
       temperature: config.model.temperature,
       topP: config.model.topP,
       maxOutputTokens: config.model.maxOutputTokens,
+      // without passThroughUnsupportedFiles, the library only allows PDF
+      providerOptions: { openai: { passThroughUnsupportedFiles: true } },
       abortSignal,
       telemetry: telemetryOptions('configurable-agent.agent'),
     });
