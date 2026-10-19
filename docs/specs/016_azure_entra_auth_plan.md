@@ -7,6 +7,30 @@ No API keys and no custom auth code: `@ai-sdk/azure` sends the bearer token,
 `@azure/identity` gets and refreshes it. The same code runs on Container
 Apps, AKS and a dev laptop.
 
+## Why code is needed
+
+Without code changes, the only way to send an Entra token is a static token
+in `OPENAI_API_KEY` with `provider: openai` and the Azure v1 `baseUrl`. The
+`openai` provider sends it as `Authorization: Bearer`, which the Azure v1
+endpoint accepts. However, the token expires, and nothing in the process can
+refresh it. A proxy that adds the token (APIM or a sidecar) adds an infra
+component and moves the auth problem to the agent → proxy hop. Neither is fit
+for production.
+
+## Smoke test before implementing
+
+Use the static-token path to check network, RBAC, the deployment name and
+Responses API support, with no code changes:
+
+```sh
+export OPENAI_API_KEY=$(az account get-access-token \
+  --resource https://cognitiveservices.azure.com --query accessToken -o tsv)
+# config: provider: openai, name: <deployment>,
+#         baseUrl: https://<name>.openai.azure.com/openai/v1
+CONFIG_PATH=./config.yaml pnpm dev serve &
+curl -s 'localhost:3000/ready?deep=1'   # {"status":"ok","probe":"passed"}
+```
+
 ## Config
 
 ```yaml
