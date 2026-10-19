@@ -9,6 +9,7 @@ introduction and install steps, see the [project README](../README.md).
 - [Running](#running)
 - [Configuration](#configuration)
   - [Model and providers](#model-and-providers)
+    - [Azure Foundry (Entra ID)](#azure-foundry-entra-id)
   - [Prompt templating](#prompt-templating)
   - [Tools](#tools)
   - [Structured output](#structured-output)
@@ -25,7 +26,7 @@ introduction and install steps, see the [project README](../README.md).
 ## Features
 
 - **One-file configuration** — prompt, model, tools, and safety knobs in YAML.
-- **Any major provider** — Anthropic, OpenAI, Google, or any OpenAI-compatible
+- **Any major provider** — Anthropic, OpenAI, Azure Foundry, Google, or any OpenAI-compatible
   endpoint (including local [ollama](https://ollama.com)).
 - **External tools via MCP** — connect any Model Context Protocol server over
   stdio or HTTP; the agent discovers and uses its tools.
@@ -73,7 +74,7 @@ systemPrompt: |
   You are a helpful assistant...
 
 model:
-  provider: anthropic           # anthropic | openai | google | ollama | openai-compatible
+  provider: anthropic           # anthropic | openai | azure | google | ollama | openai-compatible
   name: claude-sonnet-4-6
   temperature: 0.2
   # topP, maxOutputTokens also supported
@@ -112,10 +113,11 @@ output:
 
 ### Model and providers
 
-Set `model.provider` to one of `anthropic`, `openai`, `google`, `ollama`, or
-`openai-compatible`, and `model.name` to a model the provider offers. Each
-hosted provider reads its API key from an environment variable (see
-[Environment variables](#environment-variables)).
+Set `model.provider` to one of `anthropic`, `openai`, `azure`, `google`,
+`ollama`, or `openai-compatible`, and `model.name` to a model the provider
+offers. Each hosted provider reads its API key from an environment variable
+(see [Environment variables](#environment-variables)), except `azure`, which
+uses Entra ID (see below).
 
 `model.baseUrl` works for every provider: for `ollama` and `openai-compatible`
 it points at your endpoint (these often need no API key); for the hosted
@@ -123,6 +125,35 @@ providers it routes traffic through a gateway or proxy instead of the default
 API endpoint. See
 [Connecting to a local ollama](#connecting-to-a-local-ollama) for a Kubernetes
 tip.
+
+#### Azure Foundry (Entra ID)
+
+`provider: azure` calls OpenAI models deployed in Azure Foundry / Azure
+OpenAI and authenticates with Microsoft Entra ID tokens, not API keys. It works
+when key auth is disabled on the resource.
+
+```yaml
+model:
+  provider: azure
+  name: my-gpt-deployment       # the deployment name, not the model name
+  baseUrl: https://<resource>.openai.azure.com/openai   # required
+```
+
+The token comes from `DefaultAzureCredential` and is refreshed
+automatically. It picks the identity from the environment:
+
+- **Azure Container Apps:** the app's managed identity. For a user-assigned
+  identity, set `AZURE_CLIENT_ID` to its client ID.
+- **AKS:** Workload Identity. Federate the identity with the pod's
+  ServiceAccount and label the pod `azure.workload.identity/use: "true"`. The
+  webhook injects the env vars.
+- **Local:** `az login`.
+
+The identity needs the **Cognitive Services OpenAI User** role on the
+resource. In production, set `AZURE_TOKEN_CREDENTIALS=prod` so developer
+credentials (Azure CLI and similar) are never tried. `/ready` has no key to
+check for `azure`. Use `/ready?deep=1` to verify the token, endpoint and
+deployment.
 
 ### Prompt templating
 
@@ -244,7 +275,7 @@ run — see [Resolving a tool approval](#resolving-a-tool-approval).
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/health` | GET | Liveness — returns 200 as soon as the process is up. |
-| `/ready` | GET | Readiness — 200 when the config is loaded and the provider key is present. Add `?deep=1` to also make one tiny provider call that verifies the credentials, URL, and model actually work (503 on failure; the provider error appears in the server logs, not the response). Probe results are cached briefly, so frequent polling can't hammer the provider. |
+| `/ready` | GET | Readiness — 200 when the config is loaded and the provider key is present (no key check for `azure`). Add `?deep=1` to also make one tiny provider call that verifies the credentials, URL, and model actually work (503 on failure; the provider error appears in the server logs, not the response). Probe results are cached briefly, so frequent polling can't hammer the provider. |
 | `/invoke` | POST | Run the agent and stream the result over SSE. Bodies larger than the configured limit are rejected with 413. |
 
 ### Request format
@@ -399,6 +430,7 @@ Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 | `PORT` | `3000` | HTTP port. |
 | `LOG_LEVEL` | `info` | Log level (`trace`…`fatal`, or `silent`). |
 | `ANTHROPIC_API_KEY` · `OPENAI_API_KEY` · `GOOGLE_GENERATIVE_AI_API_KEY` | — | Provider credentials, per `model.provider`. |
+| `AZURE_CLIENT_ID` · `AZURE_TOKEN_CREDENTIALS` | — | Entra ID for `provider: azure`: user-assigned managed identity client ID; `prod` to skip developer credentials. See [Azure Foundry (Entra ID)](#azure-foundry-entra-id). |
 | `OLLAMA_BASE_URL` · `OPENAI_BASE_URL` | provider default | Base URL for `ollama` / `openai-compatible` when `model.baseUrl` is unset. |
 | `TOOL_APPROVAL_SECRET` | — | Signs tool-approval requests. Required (server refuses to start without it) whenever approval is enabled. |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` (10 MiB) | Maximum `/invoke` request body size; larger bodies get 413. |

@@ -37,8 +37,12 @@ curl -s 'localhost:3000/ready?deep=1'   # {"status":"ok","probe":"passed"}
 model:
   provider: azure
   name: <deployment-name>        # Foundry deployment name, not the model name
-  baseUrl: https://<name>.openai.azure.com/openai/v1
+  baseUrl: https://<name>.openai.azure.com/openai
 ```
+
+- `baseUrl` is the `/openai` prefix. The SDK appends `/v1/...` and
+  `?api-version=v1`. The latest `@ai-sdk/azure` also accepts this form, so
+  configs survive an SDK upgrade.
 
 - `baseUrl` is required for `azure` (schema refine with a clear error).
 - No other new keys. The token scope is fixed to
@@ -47,7 +51,11 @@ model:
 
 ## Changes
 
-- **Dependencies:** `pnpm add @ai-sdk/azure @azure/identity`.
+- **Dependencies:** `pnpm add @ai-sdk/azure@4.0.11 @azure/identity`.
+  `@ai-sdk/azure` 4.0.11 is the release that matches the installed
+  `@ai-sdk/openai` 4.0.11 and the pinned `@ai-sdk/provider` 4.0.3. Newer
+  releases bring a newer `@ai-sdk/provider` and fail typecheck. Upgrading all
+  `@ai-sdk/*` packages together is a separate task.
 - **`src/config/schema.ts`:** add `azure` to `ModelProvider` and its error
   message; refine `model` so `provider: azure` requires `baseUrl`.
 - **`src/agent/model.ts`:**

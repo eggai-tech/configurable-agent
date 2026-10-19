@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `azure` model provider for Azure Foundry / Azure OpenAI with Microsoft Entra ID
+  auth (managed identity, AKS workload identity, `az login`); no API key needed
 - Structured output support for the agentic loop
 - Harvest MCP integration example (`examples/harvest/`) with config and auth docs
 - Human-in-the-loop tool approval: `safety.approval` (`mode: none | all | selected`
