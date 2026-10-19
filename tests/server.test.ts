@@ -85,6 +85,22 @@ describe('GET /ready', () => {
     expect(await res.json()).toEqual({ status: 'ok' });
   });
 
+  it('returns ok for azure without any API key env var (Entra auth)', async () => {
+    vi.stubEnv('AZURE_API_KEY', '');
+    vi.stubEnv('OPENAI_API_KEY', '');
+    const config = baseConfig({
+      model: {
+        provider: 'azure',
+        name: 'gpt-5-deployment',
+        baseUrl: 'https://my-res.openai.azure.com/openai',
+      },
+    });
+    const app = buildServer(config, { tools: {} });
+    const res = await app.request('/ready');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ok' });
+  });
+
   it('deep probe failure returns 503 without leaking the provider error', async () => {
     // Unreachable baseUrl: the probe fails fast with a connection error whose
     // message names the endpoint — that detail must stay out of the response.

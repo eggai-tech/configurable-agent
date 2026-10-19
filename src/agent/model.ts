@@ -1,10 +1,18 @@
 import { anthropic, createAnthropic } from '@ai-sdk/anthropic';
+import { createAzure } from '@ai-sdk/azure';
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google';
 import { createOpenAI, openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { DefaultAzureCredential, getBearerTokenProvider } from '@azure/identity';
 import { generateText, type LanguageModel } from 'ai';
 import type { AgentConfig } from '../config/schema.js';
 import { errorMessage } from '../util.js';
+
+const AZURE_SCOPE = 'https://cognitiveservices.azure.com/.default';
+
+// One Entra token provider per process, so every model built (main loop,
+// compaction, tool summaries, /ready probe) shares its token cache.
+let azureTokenProvider: (() => Promise<string>) | undefined;
 
 export function buildModel(cfg: AgentConfig['model']): LanguageModel {
   switch (cfg.provider) {
@@ -14,6 +22,11 @@ export function buildModel(cfg: AgentConfig['model']): LanguageModel {
         : anthropic(cfg.name);
     case 'openai':
       return cfg.baseUrl ? createOpenAI({ baseURL: cfg.baseUrl })(cfg.name) : openai(cfg.name);
+    case 'azure':
+      // Entra ID only: DefaultAzureCredential picks managed identity, AKS
+      // workload identity, or `az login` from the environment.
+      azureTokenProvider ??= getBearerTokenProvider(new DefaultAzureCredential(), AZURE_SCOPE);
+      return createAzure({ baseURL: cfg.baseUrl, tokenProvider: azureTokenProvider })(cfg.name);
     case 'google':
       return cfg.baseUrl
         ? createGoogleGenerativeAI({ baseURL: cfg.baseUrl })(cfg.name)
@@ -70,6 +83,8 @@ export function requiredEnvVarFor(provider: AgentConfig['model']['provider']): s
       return 'ANTHROPIC_API_KEY';
     case 'openai':
       return 'OPENAI_API_KEY';
+    case 'azure':
+      return null;
     case 'google':
       return 'GOOGLE_GENERATIVE_AI_API_KEY';
     case 'ollama':
