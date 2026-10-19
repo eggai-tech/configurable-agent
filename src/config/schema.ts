@@ -1,8 +1,11 @@
 import { z } from 'zod';
 
 export const ModelProvider = z.enum(
-  ['anthropic', 'openai', 'google', 'ollama', 'openai-compatible'],
-  { error: 'model.provider must be one of: anthropic, openai, google, ollama, openai-compatible' },
+  ['anthropic', 'openai', 'azure', 'google', 'ollama', 'openai-compatible'],
+  {
+    error:
+      'model.provider must be one of: anthropic, openai, azure, google, ollama, openai-compatible',
+  },
 );
 export type ModelProvider = z.infer<typeof ModelProvider>;
 
@@ -37,26 +40,31 @@ export const AgentConfigSchema = z
   .object({
     systemPrompt: z.string().min(1, 'systemPrompt must not be empty'),
     promptVars: z.record(z.string(), z.unknown()).optional(),
-    model: z.strictObject({
-      provider: ModelProvider,
-      name: z.string().min(1, 'model.name must not be empty'),
-      baseUrl: z.url('model.baseUrl must be a valid URL').optional(),
-      temperature: z
-        .number()
-        .min(0, 'model.temperature must be between 0 and 2')
-        .max(2, 'model.temperature must be between 0 and 2')
-        .optional(),
-      topP: z
-        .number()
-        .min(0, 'model.topP must be between 0 and 1')
-        .max(1, 'model.topP must be between 0 and 1')
-        .optional(),
-      maxOutputTokens: z
-        .number()
-        .int('model.maxOutputTokens must be a positive integer')
-        .positive('model.maxOutputTokens must be a positive integer')
-        .optional(),
-    }),
+    model: z
+      .strictObject({
+        provider: ModelProvider,
+        name: z.string().min(1, 'model.name must not be empty'),
+        baseUrl: z.url('model.baseUrl must be a valid URL').optional(),
+        temperature: z
+          .number()
+          .min(0, 'model.temperature must be between 0 and 2')
+          .max(2, 'model.temperature must be between 0 and 2')
+          .optional(),
+        topP: z
+          .number()
+          .min(0, 'model.topP must be between 0 and 1')
+          .max(1, 'model.topP must be between 0 and 1')
+          .optional(),
+        maxOutputTokens: z
+          .number()
+          .int('model.maxOutputTokens must be a positive integer')
+          .positive('model.maxOutputTokens must be a positive integer')
+          .optional(),
+      })
+      .refine((m) => m.provider !== 'azure' || m.baseUrl, {
+        error: 'model.baseUrl is required for provider azure',
+        path: ['baseUrl'],
+      }),
     agent: z
       .strictObject({
         maxSteps: z

@@ -226,6 +226,33 @@ model:
     expect(cfg.model.baseUrl).toBe('http://localhost:11434/v1');
   });
 
+  it('accepts azure provider with baseUrl', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "be helpful"
+model:
+  provider: azure
+  name: gpt-5-deployment
+  baseUrl: https://my-res.openai.azure.com/openai
+`,
+    );
+    const cfg = loadConfig(path);
+    expect(cfg.model.provider).toBe('azure');
+    expect(cfg.model.baseUrl).toBe('https://my-res.openai.azure.com/openai');
+  });
+
+  it('rejects azure provider without baseUrl', () => {
+    const path = write(
+      'config.yaml',
+      `systemPrompt: "be helpful"
+model:
+  provider: azure
+  name: gpt-5-deployment
+`,
+    );
+    expect(() => loadConfig(path)).toThrow(/baseUrl is required for provider azure/);
+  });
+
   it('rejects unknown keys in nested objects (typo protection for safety limits)', () => {
     const path = write(
       'config.yaml',
