@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Add `repository`, `homepage` and `bugs` to `package.json`; npm rejects provenance-signed
+  publishes when `repository.url` does not match the source repository
+
 ## [0.3.1] - 2026-10-20
 
 ### Changed

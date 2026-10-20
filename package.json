@@ -1,6 +1,14 @@
 {
   "name": "@eggai/configurable-agent",
   "version": "0.3.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eggai-tech/configurable-agent.git"
+  },
+  "homepage": "https://github.com/eggai-tech/configurable-agent#readme",
+  "bugs": {
+    "url": "https://github.com/eggai-tech/configurable-agent/issues"
+  },
   "type": "module",
   "bin": {
     "configurable-agent": "dist/index.js"
