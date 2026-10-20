@@ -1,4 +1,4 @@
-name: Create Release PR
+name: Prepare Release Branch
 
 on:
   workflow_dispatch:
@@ -9,11 +9,10 @@ on:
         type: string
 
 jobs:
-  create-release-pr:
+  prepare-release-branch:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -78,17 +77,30 @@ jobs:
           git push origin release/v$VERSION
           echo "BRANCH_PUSHED_THIS_RUN=true" >> $GITHUB_ENV
 
-      - name: Create Pull Request
+      # GitHub Actions is not allowed to open pull requests in this repo (org-level
+      # setting), so the workflow stops here and the operator opens the PR by hand.
+      # Merging a PR from a release/v* branch triggers npm-publish.yml.
+      - name: Next steps
         env:
-          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
-          printf '%s\n' "## Release v$VERSION" "" "After merging, the release will be automatically tagged and published to npm." > /tmp/pr-body.md
-          gh pr create \
-            --title "chore: release v$VERSION" \
-            --body-file /tmp/pr-body.md \
-            --base main \
-            --head release/v$VERSION \
-            --label release
+          COMPARE_URL="$SERVER_URL/$REPO/compare/main...release/v$VERSION?expand=1&title=chore%3A%20release%20v$VERSION&labels=release"
+          {
+            echo "## Release branch \`release/v$VERSION\` pushed"
+            echo
+            echo "Open the release PR, then merge it. Merging tags \`v$VERSION\` and publishes to npm."
+            echo
+            echo "- [Open PR in the browser]($COMPARE_URL)"
+            echo "- Or from a terminal:"
+            echo
+            echo '```bash'
+            echo "gh pr create --repo $REPO --base main --head release/v$VERSION \\"
+            echo "  --title \"chore: release v$VERSION\" --label release \\"
+            echo "  --body \"After merging, the release will be automatically tagged and published to npm.\""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Release branch pushed. Open the PR: $COMPARE_URL"
 
       - name: Cleanup release branch on failure
         if: failure() && env.BRANCH_PUSHED_THIS_RUN == 'true'

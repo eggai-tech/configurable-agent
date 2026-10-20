@@ -23,3 +23,6 @@ coverage
 
 # local scripts folder
 scripts/
+
+# pnpm pack output
+*.tgz
