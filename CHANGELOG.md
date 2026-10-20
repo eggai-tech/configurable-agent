@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-20
+
 ### Changed
 - Release process: the `Prepare Release Branch` workflow now stops after pushing
   `release/vX.Y.Z` and the release PR is opened by hand, because GitHub Actions
