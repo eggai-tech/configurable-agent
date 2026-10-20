@@ -161,14 +161,22 @@ jobs:
             npm publish --access public --provenance
           fi
 
-      - name: Verify publish
+      # No post-publish "npm view" check: a zero exit from `npm publish` means the
+      # registry accepted the version, but since July 2026 npm holds new versions
+      # for a malware scan (typically 5-15 min) before they become visible, so an
+      # immediate lookup fails even on a successful publish.
+      - name: Summary
+        if: steps.check.outputs.exists == 'false'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          echo "Waiting for npm to index the package..."
-          sleep 10
-          npm view @eggai/configurable-agent@$VERSION version
-          echo "Successfully published @eggai/configurable-agent@$VERSION"
+          {
+            echo "## Published @eggai/configurable-agent@$VERSION"
+            echo
+            echo "npm may take several minutes to make the version installable (publish-time malware scan)."
+            echo
+            echo "https://www.npmjs.com/package/@eggai/configurable-agent/v/$VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   github-release:
     needs: [prepare, build-and-test, create-tag]
