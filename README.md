@@ -55,3 +55,11 @@ pnpm typecheck   # type-check
 pnpm lint        # lint / format check
 pnpm build       # compile to dist/
 ```
+
+## Releasing
+
+1. Make sure `CHANGELOG.md` has entries under `[Unreleased]`.
+2. Run the **Prepare Release Branch** workflow (Actions tab) with the version, e.g. `0.3.1` or `0.3.1-rc.1`.
+   It bumps `package.json`, dates the changelog section, and pushes `release/v<version>`.
+3. Open a pull request from that branch to `main` (the workflow's job summary has a one-click link and a `gh pr create` command).
+4. Merge it. The **Publish to npm** workflow then tags `v<version>`, creates the GitHub release, and publishes to npm via trusted publishing.
