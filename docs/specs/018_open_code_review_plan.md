@@ -21,7 +21,7 @@ Required inputs:
 |---------------------|--------------------------------------------------------|
 | `llm_url`           | `https://api.anthropic.com/v1/messages` (hardcoded)    |
 | `llm_auth_token`    | `secrets.ANTHROPIC_API_KEY` (reused from QualOps)       |
-| `llm_model`         | `vars.OCR_LLM_MODEL`, falling back to `claude-opus-5-5` |
+| `llm_model`         | `vars.OCR_LLM_MODEL`, falling back to `claude-sonnet-5-5` |
 | `llm_use_anthropic` | `true`                                                 |
 
 The upstream recipe expects `OCR_LLM_URL` / `OCR_LLM_AUTH_TOKEN` secrets and

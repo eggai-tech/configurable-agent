@@ -99,7 +99,7 @@ jobs:
         with:
           llm_url: https://api.anthropic.com/v1/messages
           llm_auth_token: ${{ secrets.ANTHROPIC_API_KEY }}
-          llm_model: ${{ vars.OCR_LLM_MODEL || 'claude-opus-5-5' }}
+          llm_model: ${{ vars.OCR_LLM_MODEL || 'claude-sonnet-5-5' }}
           llm_use_anthropic: 'true'
           # For issue_comment triggers pass the resolved refs; for
           # pull_request_target the action resolves them from the event.
