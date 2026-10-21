@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Refactor the agent loop, HTTP server and serve mode for readability: stream
+  handling and route registration now live in focused helpers
+- Config `${VAR}` references to unset environment variables expand to an empty
+  string with a warning instead of failing startup
+- Integer environment settings (`PORT`, timeouts, body limit) accept any integer
+- stdio MCP servers inherit the service environment, so credentials no longer
+  need to be repeated in `mcpTools[].env`
+- Stream errors and internal errors now carry the provider's diagnostics so
+  clients can debug without server log access
+
 ### Fixed
 - Add `repository`, `homepage` and `bugs` to `package.json`; npm rejects provenance-signed
   publishes when `repository.url` does not match the source repository
