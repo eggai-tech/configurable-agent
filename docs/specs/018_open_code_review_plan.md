@@ -55,3 +55,18 @@ variable.
   valid Anthropic request field; left at default.
 - `ANTHROPIC_API_KEY` remains the single LLM credential; nothing to add in
   repository settings unless the model should change.
+
+## Follow-up (2026-10-21): first run failed with HTTP 400
+
+The first OCR run (PR #28) failed every file review with a provider 400 and
+no findings. The key was valid (QualOps ran green on it the day before) and
+OCR's retry report showed `status_code: 400` from `api.anthropic.com`.
+
+Cause: the action's `llm_extra_body` input defaults to
+`{"thinking": {"type": "disabled"}}` for cross-provider compatibility, but
+Claude Sonnet 5.5 and Opus 5.5 reject `thinking.type: disabled` with a 400.
+
+Fix: set `llm_extra_body: '{}'` in the workflow so no thinking field is sent
+and the model uses its default adaptive thinking. Because the workflow runs
+on `pull_request_target`, the fix only takes effect after it is merged to
+`main`; re-run on an open PR with a `/open-code-review` comment.
