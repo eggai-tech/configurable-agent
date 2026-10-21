@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Helm chart defaults, `k8s/configmap.yaml` and `descriptor.yaml` still used the
+  removed `safety.toolOutput.triggerTokens` key (renamed to `triggerChars` in
+  0.3.0), so a pod deployed from them failed config validation at startup. The
+  shipped config samples are now validated against the schema in the test suite
 - Add `repository`, `homepage` and `bugs` to `package.json`; npm rejects provenance-signed
   publishes when `repository.url` does not match the source repository
 

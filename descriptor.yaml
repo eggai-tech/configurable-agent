@@ -79,9 +79,9 @@ configSchema:
       toolOutput:
         type: object
         properties:
-          triggerTokens:
+          triggerChars:
             type: number
-            description: "Tool outputs larger than this are LLM-summarized (default 4000)"
+            description: "Tool outputs longer than this many characters are LLM-summarized (default 16000)"
           headChars:
             type: number
             description: "Characters retained at the head of a truncated tool output (default 500)"
@@ -113,7 +113,7 @@ examples:
         triggerTokens: 100000
         keepRecentMessages: 6
       toolOutput:
-        triggerTokens: 4000
+        triggerChars: 16000
         headChars: 500
         tailChars: 500
     output:

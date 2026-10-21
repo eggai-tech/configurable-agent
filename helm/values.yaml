@@ -32,7 +32,7 @@ config:
       triggerTokens: 100000
       keepRecentMessages: 6
     toolOutput:
-      triggerTokens: 4000
+      triggerChars: 16000
       headChars: 500
       tailChars: 500
   output:

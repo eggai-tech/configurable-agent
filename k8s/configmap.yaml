@@ -19,19 +19,12 @@ data:
     agent:
       maxSteps: 6
 
-    tools:
-      bash:
-        enabled: true
-        timeoutMs: 30000
-      websearch:
-        enabled: false
-
     safety:
       compaction:
         triggerTokens: 20000
         keepRecentMessages: 6
       toolOutput:
-        triggerTokens: 2000
+        triggerChars: 8000
         headChars: 400
         tailChars: 400
 
