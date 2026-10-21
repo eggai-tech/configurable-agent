@@ -1,16 +1,13 @@
 import Handlebars from 'handlebars';
 import type { AgentConfig } from '../config/schema.js';
 
-// One compiled template per template string: the config is static for the
-// process lifetime, so recompiling on every request is pure waste.
-const compiled = new Map<string, HandlebarsTemplateDelegate>();
-
+/**
+ * Render the configured system prompt with the built-in template variables
+ * (`now`, `today`, `cwd`) plus any user-supplied `promptVars`. Templates are
+ * compiled per call: they are small and this keeps the function stateless.
+ */
 export function renderSystemPrompt(config: AgentConfig): string {
-  let template = compiled.get(config.systemPrompt);
-  if (!template) {
-    template = Handlebars.compile(config.systemPrompt, { noEscape: true });
-    compiled.set(config.systemPrompt, template);
-  }
+  const template = Handlebars.compile(config.systemPrompt, { noEscape: true });
   const now = new Date();
   const builtins = {
     now: now.toISOString(),

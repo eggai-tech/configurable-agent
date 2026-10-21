@@ -2,25 +2,19 @@ import { context, isSpanContextValid, trace } from '@opentelemetry/api';
 import pino from 'pino';
 import { serviceName, serviceVersion } from './resource.js';
 
-// Errors are logged through a whitelist serializer: SDK errors such as
-// APICallError carry the full request body (prompts, system prompt) as
-// enumerable properties, which pino's default serializer would leak into logs.
+// Keep every enumerable property of the error so SDK errors (status code,
+// url, response body, ...) stay fully inspectable in the logs.
 function serializeError(err: unknown): Record<string, unknown> {
   if (!(err instanceof Error)) {
     return { message: String(err) };
   }
-  const out: Record<string, unknown> = {
+  return {
+    ...err,
     type: err.name,
     message: err.message,
     stack: err.stack,
+    cause: err.cause instanceof Error ? serializeError(err.cause) : err.cause,
   };
-  if ('statusCode' in err && typeof err.statusCode === 'number') {
-    out.statusCode = err.statusCode;
-  }
-  if (err.cause instanceof Error) {
-    out.cause = { type: err.cause.name, message: err.cause.message };
-  }
-  return out;
 }
 
 // Logs go to stderr (fd 2): the CLI `run` mode reserves stdout for its single

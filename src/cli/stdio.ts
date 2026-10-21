@@ -13,10 +13,9 @@ export interface RunRecord {
   error: string | null;
 }
 
-// Resolves once the record is flushed to the underlying resource, so the
-// process can exit without truncating stdout on a backpressured pipe.
-export function writeRunRecord(stream: NodeJS.WritableStream, record: RunRecord): Promise<void> {
-  return new Promise((resolve, reject) => {
-    stream.write(`${JSON.stringify(record)}\n`, (err) => (err ? reject(err) : resolve()));
-  });
+export async function writeRunRecord(
+  stream: NodeJS.WritableStream,
+  record: RunRecord,
+): Promise<void> {
+  stream.write(`${JSON.stringify(record)}\n`);
 }

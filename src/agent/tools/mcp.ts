@@ -4,7 +4,7 @@ import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import { jsonSchema, type Tool, type ToolSet } from 'ai';
 import type { AgentConfig, McpServerConfig } from '../../config/schema.js';
 import { logger } from '../../observability/logger.js';
-import { errorMessage, positiveIntFromEnv, safeJson } from '../../util.js';
+import { errorMessage, intFromEnv, safeJson } from '../../util.js';
 import type { ToolResult } from '../events.js';
 import { toolResultToModelOutput } from '../events.js';
 import { maybeSummarizeToolOutput, type ToolSummaryRuntime } from '../safety/tool-summary.js';
@@ -22,7 +22,7 @@ export interface McpRegistry {
 export async function buildMcpRegistry(cfg: AgentConfig): Promise<McpRegistry> {
   const clients: MCPClient[] = [];
   const allTools: Record<string, Tool> = {};
-  const discoveryTimeoutMs = positiveIntFromEnv('MCP_DISCOVERY_TIMEOUT_MS', 30_000);
+  const discoveryTimeoutMs = intFromEnv('MCP_DISCOVERY_TIMEOUT_MS', 30_000);
 
   try {
     for (const server of cfg.mcpTools) {
@@ -97,18 +97,11 @@ function mergeServerTools(
   Object.assign(allTools, serverTools);
 }
 
-async function withTimeout<T>(ms: number, message: string, work: () => Promise<T>): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      work(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
+function withTimeout<T>(ms: number, message: string, work: () => Promise<T>): Promise<T> {
+  return Promise.race([
+    work(),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
 }
 
 function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
@@ -120,15 +113,14 @@ function createClientForServer(server: McpServerConfig): Promise<MCPClient> {
   if (server.transport === 'stdio') {
     return createMCPClient({
       onUncaughtError,
-      // Only the configured `env` reaches the child (plus the transport's safe
-      // defaults such as PATH/HOME) — never the full process environment, which
-      // holds provider API keys. Use `${VAR}` in the config to pass a specific
-      // variable through.
+      // Inherit the service environment so servers resolve PATH, HOME and any
+      // credentials they need without repeating them in the config; the
+      // configured `env` is layered on top.
       transport: new Experimental_StdioMCPTransport({
         command: server.command,
         args: server.args,
         cwd: server.cwd,
-        env: server.env,
+        env: { ...process.env, ...server.env } as Record<string, string>,
         // stderr stays 'inherit' (the default): the transport keeps its child
         // process private, so piping stderr would leave it unread and block
         // the child once the pipe buffer fills. Child diagnostics therefore

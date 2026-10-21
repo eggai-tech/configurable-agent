@@ -13,6 +13,7 @@ const addFormats = (
 ) as (ajv: Ajv) => Ajv;
 
 import { renderSystemPrompt } from '../agent/prompt.js';
+import { logger } from '../observability/logger.js';
 import { type AgentConfig, AgentConfigSchema } from './schema.js';
 
 export class ConfigError extends Error {
@@ -74,19 +75,18 @@ const ENV_VAR_PATTERN = /\$(\$?)\{(\w+)\}/g;
  * Recursively expand `${VAR}` references in every string of a parsed config
  * against the given environment. Lets secrets (e.g. API tokens) stay out of the
  * YAML file. `$${VAR}` escapes expansion and yields a literal `${VAR}` — for
- * prompt text that must contain the sequence verbatim. Throws a ConfigError
- * listing every referenced var that is unset.
+ * prompt text that must contain the sequence verbatim. Unset variables expand
+ * to an empty string and are logged, so an optional variable does not block
+ * startup.
  */
 export function expandEnvVars(value: unknown, env: NodeJS.ProcessEnv): unknown {
-  const missing = new Set<string>();
-
   const walk = (node: unknown): unknown => {
     if (typeof node === 'string') {
       return node.replace(ENV_VAR_PATTERN, (_match, escaped: string, name: string) => {
         if (escaped) return `\${${name}}`;
         const replacement = env[name];
         if (replacement === undefined) {
-          missing.add(name);
+          logger.warn({ name }, 'config references an unset environment variable');
           return '';
         }
         return replacement;
@@ -101,13 +101,7 @@ export function expandEnvVars(value: unknown, env: NodeJS.ProcessEnv): unknown {
     return node;
   };
 
-  const expanded = walk(value);
-  if (missing.size > 0) {
-    throw new ConfigError(
-      `config references unset environment variable(s): ${[...missing].join(', ')}`,
-    );
-  }
-  return expanded;
+  return walk(value);
 }
 
 function validateJsonSchema(schema: Record<string, unknown>): void {

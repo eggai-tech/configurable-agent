@@ -13,14 +13,14 @@ const NEVER_APPROVED_TOOLS = new Set(['todowrite']);
  * - `selected` — only tools whose name matches a glob pattern in `tools`.
  */
 export function toolNeedsApproval(toolName: string, approval: ApprovalConfig): boolean {
-  if (approval.mode === 'none') return false;
-  if (NEVER_APPROVED_TOOLS.has(toolName)) return false;
+  if (approval.mode === 'none' || NEVER_APPROVED_TOOLS.has(toolName)) return false;
   if (approval.mode === 'all') return true;
-  return approval.tools.some((pattern) => matchesGlob(toolName, pattern));
+  return approval.tools.some((pattern) => globToRegExp(pattern).test(toolName));
 }
 
-/** Match a tool name against a glob-style pattern where `*` is a wildcard. */
-function matchesGlob(name: string, pattern: string): boolean {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`).test(name);
+const escapeRegExp = (s: string): string => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+
+/** Compile a glob-style pattern (`*` wildcard) into an anchored RegExp. */
+function globToRegExp(pattern: string): RegExp {
+  return new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`);
 }

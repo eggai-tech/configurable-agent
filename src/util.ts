@@ -14,8 +14,14 @@ export function errorMessage(err: unknown): string {
   return safeJson(err);
 }
 
-/** Read a positive integer from the environment, or the fallback when unset/invalid. */
-export function positiveIntFromEnv(name: string, fallback: number): number {
-  const parsed = Number(process.env[name]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+/**
+ * Read an integer from the environment, or the fallback when the variable is
+ * unset or not numeric. Any integer is accepted so operators can use `0` to
+ * mean "disabled" for features that support it.
+ */
+export function intFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
 }

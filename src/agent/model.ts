@@ -57,10 +57,7 @@ export interface ProbeResult {
  * unknown model name. Used by the `/ready` deep probe; intentionally opt-in
  * because each call hits the provider.
  */
-export async function probeModel(
-  cfg: AgentConfig['model'],
-  signal?: AbortSignal,
-): Promise<ProbeResult> {
+export async function probeModel(cfg: AgentConfig['model']): Promise<ProbeResult> {
   try {
     await generateText({
       model: buildModel(cfg),
@@ -68,8 +65,6 @@ export async function probeModel(
       // 16, not 1: some reasoning models enforce a minimum output budget and
       // would 400 on a smaller value, turning a healthy setup into "not ready".
       maxOutputTokens: 16,
-      maxRetries: 0,
-      abortSignal: signal,
     });
     return { ok: true };
   } catch (err) {

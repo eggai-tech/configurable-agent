@@ -312,7 +312,7 @@ mcpTools:
   });
 
   // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal env-var placeholder syntax is the feature under test
-  it('throws ConfigError naming every unset ${VAR} reference', () => {
+  it('expands unset ${VAR} references to an empty string', () => {
     const path = write(
       'config.yaml',
       `systemPrompt: "\${CFG_TEST_MISSING_A} and \${CFG_TEST_MISSING_B}"
@@ -321,6 +321,6 @@ model:
   name: claude-sonnet-4-6
 `,
     );
-    expect(() => loadConfig(path)).toThrow(/CFG_TEST_MISSING_A.*CFG_TEST_MISSING_B/);
+    expect(loadConfig(path).systemPrompt).toBe(' and ');
   });
 });
