@@ -34,6 +34,13 @@ export interface RunAgentOptions {
   tools?: ToolSet;
 }
 
+/** Mutable per-run state threaded through the stream handlers. */
+interface RunState {
+  steps: number;
+  stepText: string;
+  paused: boolean;
+}
+
 export async function runAgent(
   config: AgentConfig,
   incoming: ModelMessage[],
@@ -82,6 +89,8 @@ export async function runAgent(
       : ({ toolCall }: { toolCall: { toolName: string } }) =>
           toolNeedsApproval(toolCall.toolName, approval) ? ('user-approval' as const) : undefined;
 
+  const state: RunState = { steps: 0, stepText: '', paused: false };
+
   try {
     const stream = streamText({
       model,
@@ -102,8 +111,8 @@ export async function runAgent(
           emit,
           abortSignal,
         }),
-        // The final step must produce a text answer, not more tool calls.
-        ...(stepNumber === maxSteps - 1 ? { toolChoice: 'none' as const } : {}),
+        // The last step must produce a text answer, not more tool calls.
+        ...(stepNumber === maxSteps ? { toolChoice: 'none' as const } : {}),
       }),
       ...(config.output.structured
         ? { output: Output.object({ schema: jsonSchema(config.output.schema) }) }
@@ -117,108 +126,12 @@ export async function runAgent(
       telemetry: telemetryOptions('configurable-agent.agent'),
     });
 
-    let steps = 0;
-    let stepText = '';
-    let paused = false;
-
     for await (const part of stream.stream) {
-      switch (part.type) {
-        case 'start-step':
-          steps += 1;
-          stepText = '';
-          break;
-        case 'reasoning-delta':
-          await emit({ type: 'reasoning', text: part.text });
-          break;
-        case 'text-delta':
-          stepText += part.text;
-          // In structured mode the text stream is the raw JSON of the final
-          // object — never a deliverable to stream to the client.
-          if (!config.output.structured) {
-            await emit({ type: 'content_delta', text: part.text });
-          }
-          break;
-        case 'tool-call':
-          await emit({
-            type: 'tool_call',
-            id: part.toolCallId,
-            name: part.toolName,
-            args: part.input,
-          });
-          break;
-        case 'tool-result': {
-          const envelope = toToolResultEnvelope(part.output, part.toolName, part.input);
-          await emit({ type: 'tool_result', id: part.toolCallId, output: envelope });
-          break;
-        }
-        case 'tool-error': {
-          const envelope: ToolResult = {
-            label: part.toolName,
-            status: 'error',
-            content: String(part.error ?? 'tool error'),
-            return_code: null,
-            args: part.input,
-            duration_ms: 0,
-          };
-          await emit({ type: 'tool_result', id: part.toolCallId, output: envelope });
-          break;
-        }
-        case 'tool-approval-request': {
-          paused = true;
-          await emit({
-            type: 'tool_approval_requested',
-            id: part.toolCall.toolCallId,
-            approvalId: part.approvalId,
-            name: part.toolCall.toolName,
-            args: part.toolCall.input,
-            ...(part.signature ? { signature: part.signature } : {}),
-          });
-          // Also surface the standard envelope so consumers of `tool_result`
-          // see the pending state (spec 003: status 'approval_required').
-          await emit({
-            type: 'tool_result',
-            id: part.toolCall.toolCallId,
-            output: {
-              label: part.toolCall.toolName,
-              status: 'approval_required',
-              content: 'Awaiting human approval before this tool can execute.',
-              return_code: null,
-              args: part.toolCall.input,
-              duration_ms: 0,
-            },
-          });
-          break;
-        }
-        case 'tool-output-denied': {
-          // Our policy only ever asks for user approval (never auto-denies),
-          // so a denied output always means a human declined the call.
-          await emit({
-            type: 'tool_result',
-            id: part.toolCallId,
-            output: {
-              label: part.toolName,
-              status: 'denied',
-              denied_reason: 'user_denied',
-              content: 'Tool execution was denied by a human reviewer.',
-              return_code: null,
-              args: undefined,
-              duration_ms: 0,
-            },
-          });
-          break;
-        }
-        case 'abort':
-          return;
-        case 'error': {
-          await emitStreamError(emit, part.error, stepText);
-          return;
-        }
-        default:
-          break;
-      }
+      const outcome = await handleStreamPart(part, state, emit, config);
+      if (outcome === 'stop') return;
     }
 
-    if (paused) {
+    if (state.paused) {
       // The turn is paused for human approval, not finished: hand the client
       // the messages it needs to resume (assistant message with the approval
       // request plus any earlier tool results of this run). No `final` yet.
@@ -231,7 +144,7 @@ export async function runAgent(
     }
 
     const finishReason = String(await stream.finishReason);
-    const diagnosis = diagnoseStep({ finishReason, stepText });
+    const diagnosis = diagnoseStep({ finishReason, stepText: state.stepText });
     if (diagnosis) {
       await emit({ type: 'error', ...diagnosis });
       return;
@@ -241,7 +154,7 @@ export async function runAgent(
         type: 'error',
         code: 'tool_call_on_final_step',
         message: 'Model still requested tool calls when the step limit was reached. Aborting.',
-        details: { steps },
+        details: { steps: state.steps },
       });
       return;
     }
@@ -263,13 +176,14 @@ export async function runAgent(
     const usage = await stream.usage;
     await emit({
       type: 'final',
-      content: structured !== undefined ? '' : stepText,
+      content: structured !== undefined ? '' : state.stepText,
       ...(structured !== undefined ? { structured } : {}),
       stopReason: finishReason,
-      steps,
+      steps: state.steps,
       truncated: false,
       usage: { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 },
     });
+    await cleanup();
   } catch (err) {
     // A client cancellation is not an agent failure — end quietly.
     if (abortSignal?.aborted) return;
@@ -279,9 +193,115 @@ export async function runAgent(
       code: 'agent_failed',
       message: errorMessage(err),
     });
-  } finally {
-    await cleanup();
   }
+}
+
+/**
+ * Translate one AI SDK stream part into agent events. Returns 'stop' when the
+ * run must end immediately (abort or stream error), 'continue' otherwise.
+ */
+async function handleStreamPart(
+  part: Awaited<ReturnType<typeof streamText>>['stream'] extends AsyncIterable<infer P> ? P : never,
+  state: RunState,
+  emit: AgentEmitter,
+  config: AgentConfig,
+): Promise<'continue' | 'stop'> {
+  switch (part.type) {
+    case 'start-step':
+      state.steps += 1;
+      state.stepText = '';
+      break;
+    case 'reasoning-delta':
+      await emit({ type: 'reasoning', text: part.text });
+      break;
+    case 'text-delta':
+      state.stepText += part.text;
+      // In structured mode the text stream is the raw JSON of the final
+      // object — never a deliverable to stream to the client.
+      if (!config.output.structured) {
+        await emit({ type: 'content_delta', text: part.text });
+      }
+      break;
+    case 'tool-call':
+      await emit({
+        type: 'tool_call',
+        id: part.toolCallId,
+        name: part.toolName,
+        args: part.input,
+      });
+      break;
+    case 'tool-result':
+      await emit({
+        type: 'tool_result',
+        id: part.toolCallId,
+        output: toToolResultEnvelope(part.output, part.toolName, part.input),
+      });
+      break;
+    case 'tool-error':
+      await emit({
+        type: 'tool_result',
+        id: part.toolCallId,
+        output: {
+          label: part.toolName,
+          status: 'error',
+          content: String(part.error ?? 'tool error'),
+          return_code: null,
+          args: part.input,
+          duration_ms: 0,
+        },
+      });
+      break;
+    case 'tool-approval-request':
+      state.paused = true;
+      await emit({
+        type: 'tool_approval_requested',
+        id: part.toolCall.toolCallId,
+        approvalId: part.approvalId,
+        name: part.toolCall.toolName,
+        args: part.toolCall.input,
+        ...(part.signature ? { signature: part.signature } : {}),
+      });
+      // Also surface the standard envelope so consumers of `tool_result`
+      // see the pending state (spec 003: status 'approval_required').
+      await emit({
+        type: 'tool_result',
+        id: part.toolCall.toolCallId,
+        output: {
+          label: part.toolCall.toolName,
+          status: 'approval_required',
+          content: 'Awaiting human approval before this tool can execute.',
+          return_code: null,
+          args: part.toolCall.input,
+          duration_ms: 0,
+        },
+      });
+      break;
+    case 'tool-output-denied':
+      // Our policy only ever asks for user approval (never auto-denies),
+      // so a denied output always means a human declined the call.
+      await emit({
+        type: 'tool_result',
+        id: part.toolCallId,
+        output: {
+          label: part.toolName,
+          status: 'denied',
+          denied_reason: 'user_denied',
+          content: 'Tool execution was denied by a human reviewer.',
+          return_code: null,
+          args: undefined,
+          duration_ms: 0,
+        },
+      });
+      break;
+    case 'abort':
+      return 'stop';
+    case 'error':
+      await emitStreamError(emit, part.error, state.stepText);
+      return 'stop';
+    default:
+      break;
+  }
+  return 'continue';
 }
 
 export function prepareMessages(config: AgentConfig, incoming: ModelMessage[]): ModelMessage[] {
@@ -340,14 +360,22 @@ async function emitStreamError(
     return;
   }
 
-  // Never emit the raw error object: APICallError serializes the full request
-  // body (prompts, system prompt) and provider response.
+  // Surface the provider's own diagnostics so clients can debug failed
+  // requests without digging through server logs.
   await emit({
     type: 'error',
     code: 'stream_error',
     message: errorMessage(cause),
     ...(APICallError.isInstance(cause)
-      ? { details: { name: cause.name, statusCode: cause.statusCode } }
+      ? {
+          details: {
+            name: cause.name,
+            statusCode: cause.statusCode,
+            url: cause.url,
+            requestBody: cause.requestBodyValues,
+            responseBody: cause.responseBody,
+          },
+        }
       : cause instanceof Error
         ? { details: { name: cause.name } }
         : {}),

@@ -11,7 +11,7 @@ import { type ProbeResult, probeModel, requiredEnvVarFor } from '../agent/model.
 import type { AgentConfig } from '../config/schema.js';
 import { logger } from '../observability/logger.js';
 import { parseTraceparent } from '../observability/tracing.js';
-import { positiveIntFromEnv } from '../util.js';
+import { errorMessage, intFromEnv } from '../util.js';
 import { parseInvokeRequest } from './request.js';
 import { writeAgentEvent } from './sse.js';
 
@@ -27,28 +27,34 @@ export interface BuildServerOptions {
 
 export function buildServer(config: AgentConfig, options: BuildServerOptions) {
   const app = new Hono();
-  const { tools, model } = options;
-  const tracer = trace.getTracer('configurable-agent');
+  registerHealthRoutes(app, config);
+  registerInvokeRoute(app, config, options);
+  return app;
+}
 
+/**
+ * Liveness and readiness. `/ready` is a cheap presence check by default; pass
+ * `?deep=1` (or set READINESS_DEEP_PROBE=1) to also issue a tiny generation
+ * against the provider, which catches bad credentials, an unreachable baseUrl
+ * or an unknown model. Probe results are cached for READINESS_PROBE_CACHE_MS
+ * and deduplicated in flight so the endpoint cannot be used to hammer the
+ * provider.
+ */
+function registerHealthRoutes(app: Hono, config: AgentConfig): void {
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
-  // Cheap presence check by default; opt into an active provider probe with
-  // `?deep=1` (or READINESS_DEEP_PROBE=1) to also catch bad credentials, an
-  // unreachable baseUrl, or an unknown model. The probe hits the provider, so
-  // it is off by default to keep k8s readiness polling free. Probe results are
-  // cached briefly with single-flight dedup so the endpoint cannot be abused
-  // to hammer the provider (it is unauthenticated).
   const deepProbeDefault = process.env.READINESS_DEEP_PROBE === '1';
-  const probeTimeoutMs = positiveIntFromEnv('READINESS_PROBE_TIMEOUT_MS', 5000);
-  const probeCacheMs = positiveIntFromEnv('READINESS_PROBE_CACHE_MS', 10_000);
+  const probeCacheMs = intFromEnv('READINESS_PROBE_CACHE_MS', 10_000);
   let probeInFlight: Promise<ProbeResult> | null = null;
   let probeCache: { result: ProbeResult; at: number } | null = null;
 
-  const cachedProbe = (): Promise<ProbeResult> => {
-    if (probeCache && Date.now() - probeCache.at < probeCacheMs) {
+  const isFresh = (entry: { at: number }): boolean => Date.now() - entry.at > probeCacheMs;
+
+  const getProbeResult = (): Promise<ProbeResult> => {
+    if (probeCache && isFresh(probeCache)) {
       return Promise.resolve(probeCache.result);
     }
-    probeInFlight ??= probeModel(config.model, AbortSignal.timeout(probeTimeoutMs))
+    probeInFlight ??= probeModel(config.model)
       .then((result) => {
         probeCache = { result, at: Date.now() };
         return result;
@@ -66,21 +72,28 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
     }
 
     const deep = c.req.query('deep') === '1' || deepProbeDefault;
-    if (deep) {
-      const probe = await cachedProbe();
-      if (!probe.ok) {
-        // The provider error text can carry endpoint/key details — log it,
-        // never return it to the (unauthenticated) caller.
-        logger.warn({ error: probe.error }, 'readiness deep probe failed');
-        return c.json({ status: 'not_ready', reason: 'provider probe failed' }, 503);
-      }
-      return c.json({ status: 'ok', probe: 'passed' });
+    if (!deep) {
+      return c.json({ status: 'ok' });
     }
 
-    return c.json({ status: 'ok' });
+    const probe = await getProbeResult();
+    if (!probe.ok) {
+      logger.warn({ error: probe.error }, 'readiness deep probe failed');
+      return c.json({ status: 'not_ready', reason: 'provider probe failed' }, 503);
+    }
+    return c.json({ status: 'ok', probe: 'passed' });
   });
+}
 
-  const maxBodyBytes = positiveIntFromEnv('MAX_REQUEST_BODY_BYTES', 10 * 1024 * 1024);
+/**
+ * `POST /invoke`: validate the body, open one span per request (nesting under
+ * an incoming `traceparent`), run the agent and stream its events as SSE.
+ */
+function registerInvokeRoute(app: Hono, config: AgentConfig, options: BuildServerOptions): void {
+  const { tools, model } = options;
+  const tracer = trace.getTracer('configurable-agent');
+
+  const maxBodyBytes = intFromEnv('MAX_REQUEST_BODY_BYTES', 10 * 1024 * 1024);
   const invokeBodyLimit = bodyLimit({
     maxSize: maxBodyBytes,
     onError: (c) => c.json({ error: 'payload_too_large', maxBytes: maxBodyBytes }, 413),
@@ -110,9 +123,6 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
     const requestId = randomUUID();
     const startedAt = Date.now();
 
-    // One span per request: incoming `traceparent` becomes the parent, the AI
-    // SDK model spans nest inside, and the logger mixin stamps every request
-    // log with the shared trace_id.
     const parentSpanCtx = parseTraceparent(c.req.header('traceparent'));
     const baseCtx = parentSpanCtx
       ? trace.setSpanContext(context.active(), parentSpanCtx)
@@ -137,10 +147,9 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
         }
         stream.onAbort(() => abortController.abort());
 
-        // Emit wrapper: log agent-level errors server-side (they are otherwise
-        // only visible to the SSE client) and swallow write failures — once the
-        // client disconnects there is nothing left to send, and that is not an
-        // agent failure.
+        // Agent-level errors are logged server-side (they are otherwise only
+        // visible to the SSE client). Write failures are swallowed: once the
+        // client disconnects there is nothing left to send.
         const emit = async (event: AgentEvent): Promise<void> => {
           if (event.type === 'error') {
             logger.error({ requestId, code: event.code, message: event.message }, 'agent error');
@@ -157,12 +166,11 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
           logger.info({ requestId, durationMs: Date.now() - startedAt }, 'invoke finished');
         } catch (err) {
           logger.error({ requestId, err, durationMs: Date.now() - startedAt }, 'agent run failed');
-          // Deliberately generic: internal failure details stay in server logs.
           try {
             await writeAgentEvent(stream, {
               type: 'error',
               code: 'internal_error',
-              message: 'internal error — see server logs',
+              message: errorMessage(err),
               details: { requestId },
             });
           } catch {
@@ -174,6 +182,4 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
       }),
     );
   });
-
-  return app;
 }
