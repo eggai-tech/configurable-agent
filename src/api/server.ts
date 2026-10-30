@@ -130,10 +130,11 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
       context.with(spanCtx, async () => {
         const abortController = new AbortController();
         const clientSignal = c.req.raw.signal;
+        const onClientAbort = (): void => abortController.abort();
         if (clientSignal?.aborted) {
           abortController.abort();
         } else {
-          clientSignal?.addEventListener('abort', () => abortController.abort(), { once: true });
+          clientSignal?.addEventListener('abort', onClientAbort, { once: true });
         }
         stream.onAbort(() => abortController.abort());
 
@@ -169,6 +170,9 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
             // client already gone
           }
         } finally {
+          // The signal can outlive the request (undici's Request finalizer holds it), and this
+          // listener's closure pins the request body, so a completed call must not leave it behind.
+          clientSignal?.removeEventListener('abort', onClientAbort);
           span.end();
         }
       }),
