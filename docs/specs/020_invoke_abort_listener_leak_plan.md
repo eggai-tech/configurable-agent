@@ -4,7 +4,7 @@
 
 `/invoke` adds an `abort` listener to `c.req.raw.signal` and never removes it. The signal outlives the request: a
 heap snapshot retains it through undici's `requestFinalizer` registry, and the listener's closure pins the Hono
-context, the cached body text and the parsed messages. The heap grows by about 3.5x the bytes served, whatever the
+context, the cached body text and the parsed messages. The heap grows by about 2x the bytes served, whatever the
 concurrency, until V8 hits its limit.
 
 ## Fix

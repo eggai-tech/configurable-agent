@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `/invoke` leaked every request body: the `abort` listener it added to the request
   signal was never removed, and the signal outlives the request, so the heap grew by
-  about 3.5x the bytes served until the process died with `JavaScript heap out of memory`
+  about 2x the bytes served until the process died with `JavaScript heap out of memory`
 - Helm chart defaults, `k8s/configmap.yaml` and `descriptor.yaml` still used the
   removed `safety.toolOutput.triggerTokens` key (renamed to `triggerChars` in
   0.3.0), so a pod deployed from them failed config validation at startup. The
