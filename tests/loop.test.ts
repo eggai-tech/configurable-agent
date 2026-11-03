@@ -118,6 +118,17 @@ function textStream(text: string): StreamPart[] {
   ];
 }
 
+/** A step that ends without any text, as a provider does on a refusal or a content filter. */
+function emptyStream(finishReason: {
+  unified: 'stop' | 'content-filter';
+  raw: string;
+}): StreamPart[] {
+  return [
+    { type: 'stream-start', warnings: [] },
+    { type: 'finish', usage: V3_USAGE, finishReason },
+  ];
+}
+
 function fakeMcpTool(executeOutput: unknown) {
   return {
     description: 'stub',
@@ -561,6 +572,52 @@ describe('runAgent — structured output', () => {
     const error = events.find((e) => e.type === 'error');
     if (error?.type !== 'error') throw new Error('expected error event');
     expect(error.code).toBe('structured_output_failed');
+    // Why, without the output itself: the text and the cause's message can carry user data.
+    expect(error.details).toEqual({
+      finishReason: 'stop',
+      rawFinishReason: 'stop',
+      textLength: 'not json at all'.length,
+      cause: 'AI_JSONParseError',
+    });
+    expect(JSON.stringify(error)).not.toContain('not json at all');
+    expect(events.some((e) => e.type === 'final')).toBe(false);
+  });
+
+  it('reports an empty answer (e.g. a refusal) as structured_output_failed with textLength 0', async () => {
+    const { model } = multiStepModel([emptyStream({ unified: 'stop', raw: 'stop' })]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      structuredConfig(),
+      [{ role: 'user', content: 'answer?' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const error = events.find((e) => e.type === 'error');
+    if (error?.type !== 'error') throw new Error('expected error event');
+    expect(error.code).toBe('structured_output_failed');
+    expect(error.details).toMatchObject({ finishReason: 'stop', textLength: 0 });
+  });
+
+  it('emits content_filtered when the provider content filter stops the response', async () => {
+    const { model } = multiStepModel([
+      emptyStream({ unified: 'content-filter', raw: 'content_filter' }),
+    ]);
+
+    const events: AgentEvent[] = [];
+    await runAgent(
+      structuredConfig(),
+      [{ role: 'user', content: 'answer?' }],
+      (e) => void events.push(e),
+      undefined,
+      { model },
+    );
+
+    const errors = events.filter((e) => e.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ code: 'content_filtered' });
     expect(events.some((e) => e.type === 'final')).toBe(false);
   });
 });
@@ -575,6 +632,12 @@ describe('diagnoseStep', () => {
   it('omits partialContent when stepText is empty', () => {
     const result = diagnoseStep({ finishReason: 'length', stepText: '' });
     expect(result?.code).toBe('max_tokens_reached');
+    expect(result?.partialContent).toBeUndefined();
+  });
+
+  it('returns content_filtered when finishReason is content-filter', () => {
+    const result = diagnoseStep({ finishReason: 'content-filter', stepText: '' });
+    expect(result?.code).toBe('content_filtered');
     expect(result?.partialContent).toBeUndefined();
   });
 
