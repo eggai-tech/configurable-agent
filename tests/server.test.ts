@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { convertArrayToReadableStream, MockLanguageModelV3 } from 'ai/test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -156,6 +157,37 @@ describe('POST /invoke — request validation', () => {
 });
 
 describe('POST /invoke — streaming', () => {
+  it('removes its abort listener from the request signal once the call completes', async () => {
+    // Spied rather than read off the request: the body limit middleware rebuilds the Request, so the
+    // handler's signal is not the one a test could hold.
+    const add = vi.spyOn(EventTarget.prototype, 'addEventListener');
+    const app = buildServer(baseConfig(), { tools: {}, model: textModel('hello') });
+
+    const res = await app.request('/invoke', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    await res.text();
+
+    // undici's own listener for following the signal is named `abort`; it is not ours to remove.
+    const registered = add.mock.calls.flatMap(([type, listener, options], i) =>
+      type === 'abort' &&
+      typeof options === 'object' &&
+      options.once &&
+      typeof listener === 'function' &&
+      listener.name !== 'abort'
+        ? [{ signal: add.mock.contexts[i] as AbortSignal, listener }]
+        : [],
+    );
+    add.mockRestore();
+
+    expect(registered).toHaveLength(1);
+    for (const { signal, listener } of registered) {
+      expect(getEventListeners(signal, 'abort')).not.toContain(listener);
+    }
+  });
+
   it('streams content deltas and a final event over SSE with a request id', async () => {
     const app = buildServer(baseConfig(), { tools: {}, model: textModel('hello world') });
     const res = await app.request('/invoke', {
