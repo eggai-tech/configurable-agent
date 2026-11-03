@@ -313,6 +313,13 @@ The loop is capped at `agent.maxSteps`. On the final step the agent forces a tex
 answer instead of another tool call; if the model tries to call a tool anyway,
 the run ends with an `error` (`code: tool_call_on_final_step`).
 
+Other error codes worth knowing: `max_tokens_reached` (the answer hit the output token limit),
+`content_filtered` (the provider's content filter stopped the answer) and `structured_output_failed` (in
+structured-output mode, the answer was not valid JSON for the schema). The last one carries `details` with
+`finishReason`, `textLength` and the cause's error name, never the answer text; an empty answer with
+`finishReason: stop` is typically a refusal. The server also writes every `error` event, with its `details`,
+to its log as `agent error`.
+
 #### Tool result envelope
 
 The `output` of every `tool_result` has this shape:
