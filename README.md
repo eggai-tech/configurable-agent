@@ -62,4 +62,5 @@ pnpm build       # compile to dist/
 2. Run the **Prepare Release Branch** workflow (Actions tab) with the version, e.g. `0.3.1` or `0.3.1-rc.1`.
    It bumps `package.json`, dates the changelog section, and pushes `release/v<version>`.
 3. Open a pull request from that branch to `main` (the workflow's job summary has a one-click link and a `gh pr create` command).
-4. Merge it. The **Publish to npm** workflow then tags `v<version>`, creates the GitHub release, and publishes to npm via trusted publishing.
+4. Merge it. The **Publish to npm** workflow then tags `v<version>`, creates the GitHub release, publishes to npm via trusted publishing,
+   and pushes the container image `ghcr.io/eggai-tech/configurable-agent:<version>` (plus `<major>.<minor>` for a stable release).
