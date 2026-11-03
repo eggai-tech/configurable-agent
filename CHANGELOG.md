@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A run whose provider content filter stopped the answer ended as `structured_output_failed`
+  ("could not parse the response."); it now ends as `content_filtered`
+- `structured_output_failed` said nothing about why: it now carries `details` with the finish
+  reason, the answer's length and the cause's error name (never the answer text), and the
+  server's `agent error` log line includes an error's `details`
+
 ## [0.3.2] - 2026-11-03
 
 ### Changed
