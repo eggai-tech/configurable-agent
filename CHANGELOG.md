@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-03
+
 ### Changed
 - Release process: the `Publish to npm` workflow now also pushes the container image
   `ghcr.io/eggai-tech/configurable-agent:<version>` (and `<major>.<minor>` for a stable
