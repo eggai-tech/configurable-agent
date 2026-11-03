@@ -144,7 +144,10 @@ export function buildServer(config: AgentConfig, options: BuildServerOptions) {
         // agent failure.
         const emit = async (event: AgentEvent): Promise<void> => {
           if (event.type === 'error') {
-            logger.error({ requestId, code: event.code, message: event.message }, 'agent error');
+            logger.error(
+              { requestId, code: event.code, message: event.message, details: event.details },
+              'agent error',
+            );
           }
           try {
             await writeAgentEvent(stream, event);

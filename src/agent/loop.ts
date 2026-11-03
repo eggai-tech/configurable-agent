@@ -4,6 +4,7 @@ import {
   jsonSchema,
   type LanguageModel,
   type ModelMessage,
+  NoObjectGeneratedError,
   Output,
   RetryError,
   stepCountIs,
@@ -231,6 +232,7 @@ export async function runAgent(
     }
 
     const finishReason = String(await stream.finishReason);
+    const rawFinishReason = await stream.rawFinishReason;
     const diagnosis = diagnoseStep({ finishReason, stepText });
     if (diagnosis) {
       await emit({ type: 'error', ...diagnosis });
@@ -255,6 +257,7 @@ export async function runAgent(
           type: 'error',
           code: 'structured_output_failed',
           message: errorMessage(err),
+          details: structuredOutputFailure(err, finishReason, rawFinishReason),
         });
         return;
       }
@@ -309,7 +312,37 @@ export function diagnoseStep(ctx: {
     };
   }
 
+  if (ctx.finishReason === 'content-filter') {
+    return {
+      code: 'content_filtered',
+      message: "The provider's content filter stopped the response.",
+      ...(ctx.stepText ? { partialContent: ctx.stepText } : {}),
+    };
+  }
+
   return null;
+}
+
+/**
+ * Why the structured output could not be produced, without the output itself:
+ * the text may carry user data, and so may the cause's message (a JSON parse
+ * error quotes the text). An empty text with finishReason `stop` is typically
+ * a model refusal, which providers do not surface as text.
+ */
+export function structuredOutputFailure(
+  err: unknown,
+  finishReason: string,
+  rawFinishReason: string | undefined,
+): { finishReason: string; rawFinishReason?: string; textLength?: number; cause?: string } {
+  const details: ReturnType<typeof structuredOutputFailure> = {
+    finishReason,
+    ...(rawFinishReason !== undefined ? { rawFinishReason } : {}),
+  };
+  if (NoObjectGeneratedError.isInstance(err)) {
+    details.textLength = err.text?.length ?? 0;
+    if (err.cause instanceof Error) details.cause = err.cause.name;
+  }
+  return details;
 }
 
 // Rate-limit headers a client can act on; everything else in the provider
