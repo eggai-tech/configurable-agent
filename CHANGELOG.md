@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Release process: the `Publish to npm` workflow now also pushes the container image
+  `ghcr.io/eggai-tech/configurable-agent:<version>` (and `<major>.<minor>` for a stable
+  release). CI's tag trigger never built it: the release tag is pushed with
+  `GITHUB_TOKEN`, which does not start other workflows
+
 ### Fixed
 - `/invoke` leaked every request body: the `abort` listener it added to the request
   signal was never removed, and the signal outlives the request, so the heap grew by

@@ -213,3 +213,53 @@ jobs:
               --notes-file /tmp/notes.md \
               $PRERELEASE_FLAG
           fi
+
+  # The image is built here rather than by ci.yml's tag trigger: create-tag pushes the
+  # tag with GITHUB_TOKEN, and pushes made with GITHUB_TOKEN do not start other
+  # workflows, so that trigger never fires for a release tag. Same tags as ci.yml would
+  # give it: <version>, and <major>.<minor> for a stable release (metadata-action skips
+  # that one for a prerelease). `latest` stays with ci.yml, which pushes it from main.
+  docker-publish:
+    needs: [prepare, build-and-test, create-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.prepare.outputs.version }}
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ghcr.io/eggai-tech/configurable-agent
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.prepare.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.prepare.outputs.version }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "## Pushed the container image"
+            echo
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
