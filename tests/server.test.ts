@@ -4,6 +4,7 @@ import { convertArrayToReadableStream, MockLanguageModelV3 } from 'ai/test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../src/api/server.js';
 import type { AgentConfig } from '../src/config/schema.js';
+import { logger } from '../src/observability/logger.js';
 
 function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   return {
@@ -212,5 +213,35 @@ describe('POST /invoke — streaming', () => {
       steps: 1,
       usage: { inputTokens: 5, outputTokens: 5 },
     });
+  });
+
+  it('logs an agent error with its details, so the server log says why the run failed', async () => {
+    const errorLog = vi.spyOn(logger, 'error');
+    const config = baseConfig({
+      output: {
+        structured: true,
+        schema: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+        },
+      },
+    });
+    const app = buildServer(config, { tools: {}, model: textModel('not json') });
+    const res = await app.request('/invoke', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    await res.text();
+
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'structured_output_failed',
+        details: expect.objectContaining({ finishReason: 'stop', textLength: 'not json'.length }),
+      }),
+      'agent error',
+    );
+    errorLog.mockRestore();
   });
 });
