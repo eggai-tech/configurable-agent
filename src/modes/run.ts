@@ -18,6 +18,7 @@ the last line of stdout. Diagnostic logs go to stderr.
 Env:
   TRACEPARENT                    W3C trace parent — spans nest under this context.
   OTEL_EXPORTER_OTLP_ENDPOINT    where to send spans.
+  OTEL_EXPORTER_OTLP_PROTOCOL    grpc, http/protobuf (default) or http/json.
 `;
 
 export interface RunCliOptions {
