@@ -5,12 +5,6 @@ import { trace } from '@opentelemetry/api';
 import { afterEach, describe, expect, it } from 'vitest';
 import { shutdownTracing, startTracing } from '../src/observability/tracing.js';
 
-const OTEL_VARS = [
-  'OTEL_EXPORTER_OTLP_ENDPOINT',
-  'OTEL_EXPORTER_OTLP_PROTOCOL',
-  'OTEL_TRACES_EXPORTER',
-] as const;
-
 function listen(server: http.Server | http2.Http2Server): Promise<string> {
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
@@ -29,16 +23,17 @@ async function exportOneSpan(): Promise<void> {
 describe('startTracing exporter selection', () => {
   afterEach(async () => {
     await shutdownTracing();
-    for (const name of OTEL_VARS) delete process.env[name];
-    // NodeSDK registers globals that a later start in this file cannot replace.
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+    // Without this the next startTracing() cannot replace the global tracer provider.
     trace.disable();
   });
 
   it('speaks gRPC when OTEL_EXPORTER_OTLP_PROTOCOL=grpc', async () => {
-    const calls: Array<{ path: unknown; contentType: unknown }> = [];
+    const calls: string[] = [];
     const server = http2.createServer();
     server.on('stream', (stream: http2.ServerHttp2Stream, headers) => {
-      calls.push({ path: headers[':path'], contentType: headers['content-type'] });
+      calls.push(`${headers[':path']} ${headers['content-type']}`);
       stream.resume();
       stream.respond(
         { ':status': 200, 'content-type': 'application/grpc' },
@@ -55,16 +50,15 @@ describe('startTracing exporter selection', () => {
     server.close();
 
     // Metrics may be exported to the same endpoint; only the trace call matters here.
-    expect(calls).toContainEqual({
-      path: '/opentelemetry.proto.collector.trace.v1.TraceService/Export',
-      contentType: 'application/grpc',
-    });
+    expect(calls).toContain(
+      '/opentelemetry.proto.collector.trace.v1.TraceService/Export application/grpc',
+    );
   });
 
   it('defaults to OTLP http/protobuf', async () => {
-    const calls: Array<{ url: unknown; contentType: unknown }> = [];
+    const calls: string[] = [];
     const server = http.createServer((req, res) => {
-      calls.push({ url: req.url, contentType: req.headers['content-type'] });
+      calls.push(`${req.url} ${req.headers['content-type']}`);
       req.resume();
       req.on('end', () => res.writeHead(200).end());
     });
@@ -73,6 +67,6 @@ describe('startTracing exporter selection', () => {
     await exportOneSpan();
     server.close();
 
-    expect(calls).toContainEqual({ url: '/v1/traces', contentType: 'application/x-protobuf' });
+    expect(calls).toContain('/v1/traces application/x-protobuf');
   });
 });
