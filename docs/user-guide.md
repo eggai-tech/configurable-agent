@@ -422,7 +422,9 @@ Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
   fields `trace_id`, `span_id`, and `trace_flags` — so logs can be joined with
   traces in your backend.
 - **Traces** — OpenTelemetry starts automatically when
-  `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED`) is set. Each `/invoke`
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED`) is set. Spans go out as
+  OTLP over `http/protobuf`; set `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` for a
+  gRPC-only endpoint (Azure Container Apps injects this itself). Each `/invoke`
   request gets its own span (parented on an incoming `traceparent` header, and
   echoed as an `x-request-id` response header), with the model-call spans
   nested inside. Model spans record prompts, tool arguments, and outputs by
@@ -446,6 +448,9 @@ Make sure ollama listens on all interfaces (`OLLAMA_HOST=0.0.0.0`).
 | `READINESS_PROBE_TIMEOUT_MS` | `5000` | Timeout for the `/ready` provider probe. |
 | `READINESS_PROBE_CACHE_MS` | `10000` | How long a `/ready` deep-probe result is cached before the provider is called again. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_ENABLED` | — | Enable OpenTelemetry tracing (`OTEL_ENABLED=0`/`false` count as off). |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` · `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | `http/protobuf` | OTLP transport for traces: `grpc`, `http/protobuf` or `http/json`. |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Trace exporter: `otlp`, `console`, `zipkin`, or `none` to export nothing. |
+| `OTEL_METRICS_EXPORTER` | `otlp` | Auto-instrumentation metrics go to the same endpoint; set `none` if it accepts traces only. |
 | `OTEL_SERVICE_NAME` · `OTEL_SERVICE_VERSION` | `configurable-agent` / version | Service identity, shared by traces and log lines. |
 | `OTEL_RECORD_CONTENT` | `1` | Set to `0` to strip prompts/tool contents from exported spans (metadata only). |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | How long a shutdown waits for in-flight requests before force-closing connections. |

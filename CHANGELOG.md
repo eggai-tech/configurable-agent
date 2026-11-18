@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Traces are sent as OTLP `http/protobuf` by default instead of `http/json` (same endpoint
+  and path), and `OTEL_TRACES_EXPORTER` is honoured
+
+### Fixed
+- `OTEL_EXPORTER_OTLP_PROTOCOL` (and `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`) was ignored: traces
+  always went out over HTTP, so a gRPC-only endpoint such as Azure Container Apps' managed
+  OpenTelemetry agent rejected them with `Parse Error: Expected HTTP/, RTSP/ or ICE/`
+
 ## [0.3.3] - 2026-11-03
 
 ### Fixed

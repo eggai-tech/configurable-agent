@@ -2,7 +2,6 @@ import { OpenTelemetry } from '@ai-sdk/otel';
 import type { SpanContext } from '@opentelemetry/api';
 import { TraceFlags } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { defaultResource, resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
@@ -20,6 +19,10 @@ function isFalsy(value: string | undefined): boolean {
  * Start OpenTelemetry tracing when an OTLP endpoint (or OTEL_ENABLED) is
  * configured. Registers the AI SDK OpenTelemetry integration; without this
  * registration AI SDK v7 produces no telemetry.
+ *
+ * No `traceExporter` is passed on purpose: NodeSDK then picks the exporter from
+ * OTEL_EXPORTER_OTLP_PROTOCOL / OTEL_TRACES_EXPORTER. Some backends (Azure
+ * Container Apps' managed agent) accept gRPC only.
  */
 export function startTracing(): void {
   if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT && isFalsy(process.env.OTEL_ENABLED)) {
@@ -35,7 +38,6 @@ export function startTracing(): void {
 
   sdk = new NodeSDK({
     resource,
-    traceExporter: new OTLPTraceExporter(),
     instrumentations: [getNodeAutoInstrumentations()],
   });
   sdk.start();
