@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-18
+
 ### Changed
 - Traces are sent as OTLP `http/protobuf` by default instead of `http/json` (same endpoint
   and path), and `OTEL_TRACES_EXPORTER` is honoured
